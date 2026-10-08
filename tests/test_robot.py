@@ -1,0 +1,148 @@
+"""실물용 통신 규약과 주행 프로그램 검증.
+
+부품이 없어도 여기까지는 확인할 수 있다. 가짜 아두이노가 같은 문장을 만들어 준다.
+
+    python -m tests.test_robot
+"""
+from __future__ import annotations
+
+import math
+import sys
+
+import numpy as np
+
+from rccar import scenarios as S
+from rccar.fake_arduino import FakeArduino
+from rccar.link import (FLAG_FRONT_OK, FLAG_REAR_OK, encode_cmd, parse_status,
+                        _checksum)
+from rccar.robot import Robot, RobotConfig
+
+
+def _status_line(**kw):
+    f = FLAG_FRONT_OK | FLAG_REAR_OK
+    body = "S,{ms},{gyro},{sweep},{front},{rear},{cmd},{flags}".format(
+        ms=kw.get("ms", 1000), gyro=kw.get("gyro", -1520), sweep=kw.get("sweep", 450),
+        front=kw.get("front", 842), rear=kw.get("rear", 1200),
+        cmd=kw.get("cmd", 850), flags=kw.get("flags", f))
+    return f"{body}*{_checksum(body):02X}"
+
+
+def test_cmd_round_trip() -> None:
+    """명령 문장은 아두이노가 읽는 형식 그대로여야 한다."""
+    b = encode_cmd(0.85, math.radians(-12.3)).decode()
+    assert b.startswith("C,850,-123*"), f"명령 형식이 다르다: {b}"
+    assert b.endswith("\n"), "줄바꿈이 없다"
+
+
+def test_status_parse() -> None:
+    """상태 문장을 숫자로 옳게 푼다."""
+    st = parse_status(_status_line())
+    assert st is not None, "정상 문장을 못 읽었다"
+    assert st.t_ms == 1000
+    assert abs(st.gyro_dps + 15.2) < 1e-6, f"자이로 {st.gyro_dps}"
+    assert abs(st.sweep_rad - math.radians(45.0)) < 1e-9
+    assert abs(st.front_m - 0.842) < 1e-9 and abs(st.rear_m - 1.2) < 1e-9
+    assert abs(st.speed_mps - 0.85) < 1e-9
+
+
+def test_bad_frames_rejected() -> None:
+    """검사값이 틀리거나 잘린 문장은 버린다. 선이 흔들리면 실제로 생긴다."""
+    good = _status_line()
+    assert parse_status(good[:-2] + "00") is None, "검사값이 틀린데 받아들였다"
+    assert parse_status(good[: len(good) // 2]) is None, "잘린 문장을 받아들였다"
+    assert parse_status("쓰레기") is None
+    assert parse_status(good) is not None, "정상 문장을 버렸다"
+
+
+def test_no_signal_means_no_range() -> None:
+    """유효 플래그가 없으면 거리는 '못 맞힘'이어야 한다. 0 으로 읽으면 코앞에 벽이 생긴다."""
+    st = parse_status(_status_line(flags=0))
+    assert math.isinf(st.front_m) and math.isinf(st.rear_m)
+
+
+def test_fake_hardware_drive() -> None:
+    """가짜 아두이노로 무작위 지도를 실제로 주행한다."""
+    world, start, goal = S.make("random", 2005)
+    fake = FakeArduino(world, start, rng=np.random.default_rng(1))
+    d = goal - start[:2]
+    c, s = math.cos(-start[2]), math.sin(-start[2])
+    goal_local = np.array([c * d[0] - s * d[1], s * d[0] + c * d[1]])
+    rb = Robot(fake, goal_local, cfg=RobotConfig(max_time=60))
+    dt = 1.0 / rb.C.control_hz
+    k = 0
+    while rb.step(dt):
+        if k % 5 == 0:
+            rb.plan_cycle()
+        rb.control_cycle()
+        fake.advance(dt)
+        k += 1
+    assert rb.arrived, f"도착하지 못했다 (t={rb.t:.1f}s)"
+    true_err = float(np.hypot(*(fake.vehicle.pose[:2] - goal)))
+    assert true_err < 1.0, f"실제 위치가 목적지에서 {true_err:.2f} m 떨어졌다"
+
+
+def test_watchdog_stops_car() -> None:
+    """명령을 끊으면 차가 스스로 선다. 파이가 죽어도 차는 서야 한다."""
+    world, start, _ = S.make("random", 2005)
+    fake = FakeArduino(world, start, rng=np.random.default_rng(0))
+    fake.send(0.8, 0.0)
+    for _ in range(50):                      # 1 초 동안 명령을 계속 준다
+        fake.send(0.8, 0.0)
+        fake.advance(0.02)
+    assert fake.vehicle.v > 0.3, "명령을 주는데 차가 안 움직인다"
+    for _ in range(100):                     # 2 초 동안 명령을 끊는다
+        fake.advance(0.02)
+    assert abs(fake.vehicle.v) < 0.05, f"명령이 끊겼는데 아직 {fake.vehicle.v:.2f} m/s 로 간다"
+
+
+def test_manual_override() -> None:
+    """사람이 조종기로 가져가면 주행 프로그램은 명령을 멈춘다."""
+    world, start, goal = S.make("random", 2005)
+    fake = FakeArduino(world, start, rng=np.random.default_rng(0))
+    rb = Robot(fake, np.array([3.0, 0.0]), cfg=RobotConfig(max_time=10))
+    dt = 1.0 / rb.C.control_hz
+    for k in range(60):
+        rb.step(dt)
+        if k % 5 == 0:
+            rb.plan_cycle()
+        rb.control_cycle()
+        fake.advance(dt)
+    fake.manual = True
+    for k in range(30):
+        rb.step(dt)
+        rb.control_cycle()
+        fake.advance(dt)
+    assert rb.manual, "사람이 가져간 것을 알아채지 못했다"
+    assert abs(fake._cmd[0]) < 1e-9, "사람 조종 중인데 속도를 보냈다"
+
+
+TESTS = [
+    ("명령 문장 형식", test_cmd_round_trip),
+    ("상태 문장 해석", test_status_parse),
+    ("깨진 문장 버리기", test_bad_frames_rejected),
+    ("신호 없으면 거리 없음", test_no_signal_means_no_range),
+    ("가짜 장치로 실제 주행", test_fake_hardware_drive),
+    ("명령이 끊기면 정지", test_watchdog_stops_car),
+    ("사람 조종 우선", test_manual_override),
+]
+
+
+def main() -> int:
+    failed = 0
+    for name, fn in TESTS:
+        try:
+            fn()
+        except AssertionError as exc:
+            print(f"  [실패] {name}: {exc}")
+            failed += 1
+        else:
+            print(f"  [통과] {name}")
+    if failed:
+        print(f"\n{failed}개 실패")
+        return 1
+    print("\n실물 준비 전부 통과")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

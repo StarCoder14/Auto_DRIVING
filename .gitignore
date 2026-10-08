@@ -1,0 +1,10 @@
+# 파이썬
+__pycache__/
+*.pyc
+
+# 버리기로 한 옛 영상
+버릴것/
+
+# OS
+Thumbs.db
+desktop.ini
