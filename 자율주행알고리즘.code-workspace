@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"python.analysis.extraPaths": [
+			"."
+		],
+		"files.exclude": {
+			"**/__pycache__": true
+		}
+	}
+}
