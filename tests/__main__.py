@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import sys
 
-from tests import (test_circle_model, test_geometry, test_hybrid, test_planner, test_robot,
+from tests import (test_car_specs, test_circle_model, test_geometry, test_hybrid, test_planner, test_robot,
                    test_sensors)
 
 SUITES = [
+    ("차 사양 (car_specs)", test_car_specs),
     ("처음 기하 모델 (계획서의 알고리즘 A)", test_circle_model),
     ("기하 계산", test_geometry),
     ("하이브리드 A*", test_hybrid),

@@ -19,6 +19,8 @@ python run.py --bench                  # 전 시나리오 성능 측정
 python run.py --list                   # 시나리오 목록
 python -m tests.test_hybrid            # 하이브리드 A* 시험 (몇 초)
 python -m tests.test_robot             # 실물 통신과 주행 시험 (몇 초)
+python -m rccar.car_specs              # 우리 차를 잰 값, 빈칸, 펌웨어에 옮길 값 보기
+python run.py --car ours               # 잰 우리 차 크기로 시뮬레이션
 python run_circle_model.py             # 처음 기하 모델(0단계)을 고정 배치에서 표로 보기
 python run_circle_model.py --layout cup --show   # 한 배치를 그림으로
 python run_circle_model.py --geogebra  # GeoGebra 로 작도해 맞춰 볼 숫자
@@ -304,6 +306,7 @@ run_circle_model.py 처음 기하 모델(0단계) 실행. 그림은 recordings/c
 run_robot.py      실제 차 진입점 (오렌지파이에서 실행).
 firmware/         아두이노 펌웨어.
 rccar/            알고리즘 본체
+  car_specs.py    우리 차를 잰 값 (cm). 실물 주행, --car ours, 기하 모델이 이 값을 씀
   circle_model.py 판별식, 수선의 발, 기울기 접선, 호      ← 처음 기하 모델 (0단계)
   circle_avoider.py 원 하나씩 비켜 가는 반복 (알고리즘 A)
   circle_layouts.py 0단계 시험 배치 (1.5 m 평면)

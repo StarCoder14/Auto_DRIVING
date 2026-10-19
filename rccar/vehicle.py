@@ -33,7 +33,10 @@ class VehicleParams:
                  dist_source="encoder",  # 'encoder' 또는 'command'
                  speed_scale_err=0.08,   # 명령 속도 대비 실제 속도의 비율 오차
                  gyro_bias_dps=0.0,      # 자이로 편향 (도/초). 0 이면 편향 없음
-                 odom_yaw_drift=0.004):  # 회전량당 방위 오차 비율
+                 odom_yaw_drift=0.004,   # 회전량당 방위 오차 비율
+                 rear_overhang=None,     # 뒷바퀴 축에서 차 뒤끝까지 (m). None 이면 앞뒤가 고르게 튀어나왔다고 봄
+                 front_sensor_x=None,    # 앞 센서(서보 회전축) 위치, 뒷바퀴 축에서 앞으로 (m)
+                 rear_sensor_x=None):    # 뒤 센서 위치, 뒷바퀴 축 기준 (m, 뒤쪽이 음수)
         self.wheelbase = wheelbase
         self.width = width
         self.length = length
@@ -54,6 +57,34 @@ class VehicleParams:
         self.speed_scale_err = speed_scale_err
         self.gyro_bias_dps = gyro_bias_dps
         self.odom_yaw_drift = odom_yaw_drift
+        self.rear_overhang = rear_overhang
+        self.front_sensor_x = front_sensor_x
+        self.rear_sensor_x = rear_sensor_x
+
+    # 차체와 센서 위치는 전부 뒷바퀴 축 가운데를 0 으로 잼. 시뮬레이터의 pose 가 그 점임.
+    # 예전엔 아래 기본식이 파일 다섯 곳에 복사돼 있었음. 실제 차를 재서 넣으려고 여기로 모음
+    @property
+    def rear_overhang_m(self):
+        if self.rear_overhang is not None:
+            return self.rear_overhang
+        return 0.5 * (self.length - self.wheelbase) + 0.02
+
+    @property
+    def front_bumper_x(self):
+        """앞 범퍼가 뒷바퀴 축에서 앞으로 얼마나 나가 있는가 (m)."""
+        return self.length - self.rear_overhang_m
+
+    @property
+    def front_sensor_x_m(self):
+        if self.front_sensor_x is not None:
+            return self.front_sensor_x
+        return self.front_bumper_x - 0.06
+
+    @property
+    def rear_sensor_x_m(self):
+        if self.rear_sensor_x is not None:
+            return self.rear_sensor_x
+        return -self.rear_overhang_m + 0.02
 
     @property
     def min_turn_radius(self):
@@ -133,7 +164,7 @@ class Vehicle:
         P = self.P
         pose = self.pose if pose is None else pose
         # 뒷축 기준점에서 앞으로 치우친 차체
-        rear = 0.5 * (P.length - P.wheelbase) + 0.02
+        rear = P.rear_overhang_m
         pts = np.array([[-rear, -P.width / 2], [P.length - rear, -P.width / 2],
                         [P.length - rear, P.width / 2], [-rear, P.width / 2]])
         return G.compose(pose, pts)

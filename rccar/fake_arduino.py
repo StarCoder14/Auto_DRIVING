@@ -25,7 +25,7 @@ from collections import deque
 import numpy as np
 
 from .link import FLAG_FRONT_OK, FLAG_MANUAL, FLAG_REAR_OK, FLAG_WATCHDOG, Status
-from .sensors import RangeSensorArray, _bumper
+from .sensors import RangeSensorArray
 from .vehicle import Vehicle, VehicleParams
 
 
@@ -48,10 +48,10 @@ class FakeArduino:
         self.gyro_bias = math.radians(self.rng.normal(0.0, gyro_bias_dps))
         self.gyro_noise = math.radians(gyro_noise_dps)
 
-        fx = _bumper(self.V)
-        rx = -(0.5 * (self.V.length - self.V.wheelbase) + 0.02) + 0.02
+        fx = self.V.front_sensor_x_m
+        rx = self.V.rear_sensor_x_m
         cone = math.radians(27)
-        self.front = RangeSensorArray("front", [[fx - 0.04, 0.0]], [0.0], 3.0,
+        self.front = RangeSensorArray("front", [[fx, 0.0]], [0.0], 3.0,
                                       cone=cone, subrays=9, noise_abs=0.02,
                                       noise_rel=0.01, rng=self.rng)
         self.rear = RangeSensorArray("rear", [[rx, 0.0]], [math.pi], 3.0,

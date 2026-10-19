@@ -33,14 +33,17 @@ def main():
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
+    from rccar import car_specs
     from rccar.robot import Robot, RobotConfig
     cfg = RobotConfig(max_speed=args.max_speed, max_time=args.max_time)
+    # 실제 차를 움직이는 프로그램이라 늘 잰 값을 씀. 가짜 아두이노도 같은 차로 흉내 내야 시험이 의미 있음
+    veh = car_specs.vehicle_params()
 
     if args.fake:
         from rccar import scenarios as S
         from rccar.fake_arduino import FakeArduino
         world, start, goal = S.make("random", args.seed)
-        link = FakeArduino(world, start, rng=np.random.default_rng(args.seed))
+        link = FakeArduino(world, start, veh=veh, rng=np.random.default_rng(args.seed))
         if args.goal is None:                      # 지도의 목적지를 차 기준으로 바꾼다
             d = goal - start[:2]
             c, s = np.cos(-start[2]), np.sin(-start[2])
@@ -56,7 +59,7 @@ def main():
         link = SerialLink(args.port)
         goal_local = np.array(args.goal, float)
 
-    rb = Robot(link, goal_local, cfg=cfg)
+    rb = Robot(link, goal_local, veh=veh, cfg=cfg)
 
     def tick(r, k):
         if args.quiet or k % 25:

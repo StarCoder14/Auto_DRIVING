@@ -35,7 +35,7 @@ from .grid import OccupancyGrid
 from .hybrid import HybridAStar, HybridParams, distance_field
 from .hybrid_sim import HybridConfig, SegmentTracker, integrate_rays
 from .link import Status
-from .sensors import Measurement, RangeSensorArray, _bumper
+from .sensors import Measurement, RangeSensorArray
 from .vehicle import VehicleParams
 
 
@@ -78,10 +78,10 @@ class Robot:
         self.manual = False
 
         # 센서 장착 위치와 원뿔. sensors.make_sensor 의 tof_sweep_rear 과 같은 값
-        fx = _bumper(self.V)
-        rx = -(0.5 * (self.V.length - self.V.wheelbase) + 0.02) + 0.02
+        fx = self.V.front_sensor_x_m
+        rx = self.V.rear_sensor_x_m
         cone = math.radians(27)
-        self.front = RangeSensorArray("front", [[fx - 0.04, 0.0]], [0.0], 3.0,
+        self.front = RangeSensorArray("front", [[fx, 0.0]], [0.0], 3.0,
                                       cone=cone, subrays=9, map_arc=True)
         self.rear = RangeSensorArray("rear", [[rx, 0.0]], [math.pi], 3.0,
                                      cone=cone, subrays=9, map_arc=True)

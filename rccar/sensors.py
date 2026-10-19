@@ -307,8 +307,7 @@ class SensorGroup:
 # ============================================================== 조합 목록
 def _bumper(veh):
     """앞 범퍼 위치 (뒷바퀴 축 기준 앞쪽 거리)."""
-    rear = 0.5 * (veh.length - veh.wheelbase) + 0.02
-    return veh.length - rear - 0.02
+    return veh.front_bumper_x - 0.02
 
 
 SENSOR_SETS = ("lidar360", "tof1", "tof3", "tof_sweep", "tof_sweep_rear", "us1", "us3")
@@ -352,13 +351,13 @@ def make_sensor(name, veh, rng=None, map_arc=True):
                                 noise_abs=0.02, noise_rel=0.01, rng=rng, map_arc=map_arc)
     if name in ("tof_sweep", "tof_sweep_rear"):
         ang = np.radians(np.arange(-90.0, 90.1, 15.0))
-        mounts = np.tile([[fx - 0.04, 0.0]], (len(ang), 1))
+        mounts = np.tile([[veh.front_sensor_x_m, 0.0]], (len(ang), 1))
         front = RangeSensorArray("tof_sweep", mounts, ang, 3.0, cone=radians(27), subrays=9,
                                  per_cycle=3, sweep=True, noise_abs=0.02, noise_rel=0.01,
                                  rng=rng, map_arc=map_arc)
         if name == "tof_sweep":
             return front
-        rx = -(0.5 * (veh.length - veh.wheelbase) + 0.02) + 0.02     # 뒤 범퍼
+        rx = veh.rear_sensor_x_m                                      # 뒤 범퍼
         rear = RangeSensorArray("tof_rear", [[rx, 0.0]], [np.pi], 3.0, cone=radians(27),
                                 subrays=9, noise_abs=0.02, noise_rel=0.01, rng=rng, map_arc=map_arc)
         return SensorGroup(name, [front, rear])
