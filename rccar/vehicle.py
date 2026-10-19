@@ -34,6 +34,7 @@ class VehicleParams:
                  speed_scale_err=0.08,   # 명령 속도 대비 실제 속도의 비율 오차
                  gyro_bias_dps=0.0,      # 자이로 편향 (도/초). 0 이면 편향 없음
                  odom_yaw_drift=0.004,   # 회전량당 방위 오차 비율
+                 odom_yaw_noise=2e-4,    # 걸음마다 방위에 섞이는 잡음 (rad). 0 이면 위치 추정이 완벽해짐
                  rear_overhang=None,     # 뒷바퀴 축에서 차 뒤끝까지 (m). None 이면 앞뒤가 고르게 튀어나왔다고 봄
                  front_sensor_x=None,    # 앞 센서(서보 회전축) 위치, 뒷바퀴 축에서 앞으로 (m)
                  rear_sensor_x=None):    # 뒤 센서 위치, 뒷바퀴 축 기준 (m, 뒤쪽이 음수)
@@ -57,6 +58,7 @@ class VehicleParams:
         self.speed_scale_err = speed_scale_err
         self.gyro_bias_dps = gyro_bias_dps
         self.odom_yaw_drift = odom_yaw_drift
+        self.odom_yaw_noise = odom_yaw_noise
         self.rear_overhang = rear_overhang
         self.front_sensor_x = front_sensor_x
         self.rear_sensor_x = rear_sensor_x
@@ -141,7 +143,7 @@ class Vehicle:
         else:
             n_ds = ds * (1.0 + self.rng.normal(0.0, P.odom_drift))
         n_dth = dth * (1.0 + self.rng.normal(0.0, P.odom_yaw_drift)) \
-            + self.rng.normal(0.0, 2e-4) + self._gyro_bias * dt
+            + self.rng.normal(0.0, P.odom_yaw_noise) + self._gyro_bias * dt
         ox, oy, oth = self.odom
         self.odom = np.array([ox + n_ds * np.cos(oth + 0.5 * n_dth),
                               oy + n_ds * np.sin(oth + 0.5 * n_dth),
