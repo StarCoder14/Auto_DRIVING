@@ -2,7 +2,7 @@
 """
 run_error_split.py -- 오차를 알고리즘, 센서, 위치 추정, 기계로 나눠 재기 (계획서 6-라)
 
-  python run_error_split.py                          # 무작위 지도 6개, 우리 차
+  python run_error_split.py                          # 무작위 지도 30개, 우리 차 (몇 분 걸림)
   python run_error_split.py --map arena --count 10   # car_specs 의 시험 공간 크기로 만든 무작위 배치
   python run_error_split.py --map layouts/day1.txt   # 실제로 잰 배치 파일 (형식은 error_split.load_layout)
   python run_error_split.py --map layouts/day1.txt --real-track tracks/day1_run1.txt
@@ -56,41 +56,55 @@ def maps_for(args):
     return [(os.path.basename(args.map), *E.load_layout(args.map))]
 
 
+# 표에 넣을 지표: (키, 머리글, 숫자 형식)
+COLUMNS = (("length_ratio", "길이 비", "{:.3f}"),
+           ("body_clearance", "차체 여유(m)", "{:+.3f}"),
+           ("final_error", "도달 오차(m)", "{:.3f}"),
+           ("localization_error", "위치 오차(m)", "{:.3f}"),
+           ("gap_mean", "궤적 차이(m)", "{:.3f}"))
+
+
 def print_map(name, metrics, extra=None):
     print(f"\n{name}")
-    print(f"  {'단계':<10} {'성공':>4} {'길이 비':>8} {'평균 거리(m)':>12} {'최대 거리(m)':>12} {'도달 오차(m)':>12}")
+    print("  " + f"{'단계':<12}{'성공':>4}" + "".join(f"{title:>14}" for _, title, _ in COLUMNS))
     rows = list(zip(E.STAGES, metrics))
     if extra is not None:
         rows.append(("4 실차", extra))
     for label, m in rows:
-        print(f"  {label:<10} {'O' if m['success'] else 'X':>4} {m['length_ratio']:>8.3f} "
-              f"{m['gap_mean']:>12.3f} {m['gap_max']:>12.3f} {m['final_error']:>12.3f}")
+        cells = "".join(f"{(form.format(m[key]) if np.isfinite(m[key]) else '-'):>14}"
+                        for key, _, form in COLUMNS)
+        print(f"  {label:<12}{'O' if m['success'] else 'X':>4}{cells}")
 
 
 def print_summary(all_metrics, real=None):
-    """모든 단계가 성공한 지도만 모아 평균을 내고, 앞 단계보다 늘어난 만큼을 원인별로 나눔."""
+    """모든 단계가 성공한 지도만 모아 평균을 내고, 앞 단계보다 바뀐 만큼을 원인별로 나눔."""
     usable = [m for m in all_metrics if all(stage["success"] for stage in m)]
     print(f"\n== 요약: 지도 {len(all_metrics)}개 중 모든 단계가 도착한 {len(usable)}개로 계산 ==")
+    print("\n  단계별 평균")
+    print("  " + f"{'단계':<12}{'성공률':>8}" + "".join(f"{title:>14}" for _, title, _ in COLUMNS))
     for k, label in enumerate(E.STAGES):
         rate = np.mean([m[k]["success"] for m in all_metrics])
-        print(f"  {label:<10} 도달 성공률 {rate * 100:5.1f}%")
+        means = [np.mean([m[k][key] for m in usable]) if usable else np.nan for key, _, _ in COLUMNS]
+        cells = "".join(f"{(form.format(v) if np.isfinite(v) else '-'):>14}" for v, (_, _, form) in zip(means, COLUMNS))
+        print(f"  {label:<12}{rate * 100:>7.1f}%{cells}")
     if not usable:
         return
-    ratio = np.array([[m[k]["length_ratio"] for k in range(len(E.STAGES))] for m in usable])
-    gap = np.array([[m[k]["gap_mean"] for k in range(len(E.STAGES))] for m in usable])
-    final = np.array([[m[k]["final_error"] for k in range(len(E.STAGES))] for m in usable])
-    print(f"\n  {'원인':<10} {'길이 비 증가':>12} {'평균 거리 증가(m)':>18} {'도달 오차 증가(m)':>18}")
+    print("\n  원인별 몫 (앞 단계에서 바뀐 평균)")
+    print("  " + f"{'원인':<12}" + "".join(f"{title:>14}" for _, title, _ in COLUMNS))
     for k, cause in enumerate(E.CAUSES, start=1):
-        print(f"  {cause:<10} {np.mean(ratio[:, k] - ratio[:, k - 1]):>+12.4f} "
-              f"{np.mean(gap[:, k] - gap[:, k - 1]):>+18.4f} {np.mean(final[:, k] - final[:, k - 1]):>+18.4f}")
+        cells = ""
+        for key, _, form in COLUMNS:
+            change = np.mean([m[k][key] - m[k - 1][key] for m in usable])
+            cells += f"{('{:+.3f}'.format(change)):>14}"
+        print(f"  {cause:<12}{cells}")
     if real is not None:
         last = usable[-1][-1]
-        print(f"  {'기계·제어':<10} {real['length_ratio'] - last['length_ratio']:>+12.4f} "
-              f"{real['gap_mean'] - last['gap_mean']:>+18.4f} {real['final_error'] - last['final_error']:>+18.4f}")
-    total = np.mean(ratio[:, -1] - 1.0)
-    print(f"\n  기준보다 길어진 전체 {total * 100:+.2f}% 중"
-          + "".join(f"  {cause} {np.mean(ratio[:, k] - ratio[:, k - 1]) * 100:+.2f}%p"
-                    for k, cause in enumerate(E.CAUSES, start=1)))
+        cells = "".join(f"{('{:+.3f}'.format(real[key] - last[key]) if np.isfinite(real[key]) else '-'):>14}"
+                        for key, _, _ in COLUMNS)
+        print(f"  {'기계·제어':<12}{cells}")
+    shorter = sum(m[1]["length_ratio"] < 1.0 for m in usable)
+    print(f"\n  보이는 것만 아는 차가 다 아는 차보다 짧게 달린 지도: {shorter}/{len(usable)}"
+          "  (짧은 대신 여유가 줄었는지 차체 여유 줄을 같이 볼 것)")
 
 
 def save_figure(name, world, start, goal, runs, real_track=None):
@@ -133,7 +147,7 @@ def save_figure(name, world, start, goal, runs, real_track=None):
 def main():
     parser = argparse.ArgumentParser(description="오차 분해")
     parser.add_argument("--map", default="random", help="random, arena, 또는 배치 파일 경로")
-    parser.add_argument("--count", type=int, default=6)
+    parser.add_argument("--count", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--car", default="ours", choices=("ours", "sim"))
     parser.add_argument("--real-track", default=None, help="실차 궤적 파일 (배치 파일과 함께)")
