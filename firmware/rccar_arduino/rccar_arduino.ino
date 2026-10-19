@@ -47,6 +47,11 @@ const uint8_t PIN_SWEEP_SERVO = 9;
 const uint8_t PIN_STEER_SERVO = 10;
 const uint8_t PIN_ESC         = 11;
 const uint8_t PIN_RC          = 2;      // 쓰지 않으면 USE_RC 를 0 으로
+const uint8_t PIN_BUZZER      = 13;     // 이 차의 부저는 D13 (나노의 L LED 와 같은 핀)
+
+// 능동형 부저 가정: 핀을 HIGH 로 두면 알아서 삑 운다. HIGH 만으로 소리가 안 나면
+// 수동형이므로 beepOn() 을 tone(PIN_BUZZER, 2000) 으로 바꿀 것 (아래 함수 한 곳만 고치면 됨)
+const uint8_t USE_BUZZER = 1;
 
 const uint8_t USE_RC = 0;
 // 뒤 ToF 를 달았으면 1. 지금 차는 앞 ToF 하나뿐이라 0 (2026-10-19).
@@ -174,6 +179,11 @@ void handleLine(char* line) {
   *star = 0;
   uint8_t want = (uint8_t)strtol(star + 1, NULL, 16);
   if (checksum(line, strlen(line)) != want) return;       // 깨진 줄은 버린다
+  if (line[0] == 'B') {                                    // 부저: B,1 켜고 B,0 끈다
+    int on;
+    if (sscanf(line, "B,%d", &on) == 1) beepSet(on != 0);
+    return;                                                // 부저는 lastCmdAt 을 건드리지 않는다
+  }                                                        // (삑삑 소리가 watchdog 정지를 막으면 안 됨)
   if (line[0] != 'C') return;
   int sp; int st;
   if (sscanf(line, "C,%d,%d", &sp, &st) != 2) return;
@@ -206,6 +216,12 @@ void sendStatus(int appliedMMS, uint8_t flags) {
   Serial.println(hex);
 }
 
+// ---------------------------------------------------------------- 부저
+// 능동형 부저를 가정해 핀만 켜고 끈다. 수동형이면 이 두 함수만 tone/noTone 으로 바꾼다.
+void beepSet(bool on) {
+  if (USE_BUZZER) digitalWrite(PIN_BUZZER, on ? HIGH : LOW);
+}
+
 // ---------------------------------------------------------------- 출력
 void applyOutputs(int speedMMS, float steerDeg) {
   steerServo.write(constrain(STEER_CENTER_DEG + STEER_GAIN * steerDeg, 0, 180));
@@ -226,6 +242,7 @@ void setup() {
   applyOutputs(0, 0);                       // 변속기가 중립을 보고 준비되도록
   sweepServo.write(SWEEP_CENTER_DEG);
   if (USE_RC) pinMode(PIN_RC, INPUT);
+  if (USE_BUZZER) { pinMode(PIN_BUZZER, OUTPUT); beepSet(false); }
 
   tofBegin();
   mpuBegin();                                // 이 동안 차를 가만히 둘 것

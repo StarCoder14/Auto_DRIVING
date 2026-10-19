@@ -87,6 +87,11 @@ class FakeArduino:
         self._cmd = (float(speed_mps), float(steer_rad))
         self._last_cmd_t = self.t
 
+    def beep(self, on):
+        # 부저 명령은 받되 가짜 아두이노는 소리를 못 내므로 몇 번 울렸는지만 센다.
+        # 부저가 watchdog(명령 끊김 정지)을 건드리지 않는 것을 시험으로 확인하려고 둔다.
+        self.beeps = getattr(self, "beeps", 0) + (1 if on else 0)
+
     def poll(self):
         out = []
         while self._out and self._out[0][0] <= self.t:
