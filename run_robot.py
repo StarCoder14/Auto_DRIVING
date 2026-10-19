@@ -23,6 +23,33 @@ import time
 import numpy as np
 
 
+def countdown(link, seconds, quiet=False):
+    """출발 전 삑삑 카운트다운. 사람이 키보드와 모니터 선을 뽑을 시간을 준다.
+
+    마지막 3 초는 빠르게 울려 곧 출발함을 알린다. 부저 명령은 watchdog 을 건드리지 않아
+    이 동안에도 '명령이 끊긴' 상태라 모터는 돌지 않는다. 가짜 아두이노면 소리 대신 횟수만 센다.
+    """
+    def beep(duration):
+        link.beep(True)
+        time.sleep(duration)
+        link.beep(False)
+
+    for remaining in range(int(seconds), 0, -1):
+        if not quiet:
+            print(f"  출발까지 {remaining}초", flush=True)
+        if remaining > 3:
+            beep(0.1)                      # 1 초에 한 번 짧게
+            time.sleep(0.9)
+        else:
+            for _ in range(3):             # 마지막 3 초는 빠르게 삑삑삑
+                beep(0.07)
+                time.sleep(0.093)
+            time.sleep(0.5)
+    beep(0.6)                              # 길게 한 번 울리고 출발
+    if not quiet:
+        print("  출발!", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="실제 RC카 주행")
     ap.add_argument("--port", default=None, help="아두이노 포트. 예 /dev/ttyUSB0, COM3")
@@ -35,6 +62,8 @@ def main():
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--log", default=None, help="주행 기록 CSV 경로. 안 주면 logs/ 에 시각으로 이름을 지음")
     ap.add_argument("--no-log", action="store_true", help="주행 기록을 남기지 않음")
+    ap.add_argument("--countdown", type=float, default=10.0,
+                    help="출발 전 삑삑 카운트다운 시간(초). 0 이면 바로 시작")
     args = ap.parse_args()
 
     from rccar import car_specs
@@ -85,6 +114,13 @@ def main():
         print(f"t {r.t:5.1f}s  위치 ({p[0]:+.2f},{p[1]:+.2f}) 방향 {np.degrees(p[2]):+6.1f}도  "
               f"속도 {r.speed:+.2f} m/s  계획 {r.stats['plans']:3d}  정지 {r.stats['stops']:2d}"
               f"{'  사람조종' if r.manual else ''}", flush=True)
+
+    # 출발 전 삑삑 카운트다운. 이 동안 차는 멈춰 있고, 사람은 키보드와 모니터 선을 뽑는다.
+    # 가짜 아두이노는 소리 대신 울린 횟수만 세므로, 시험을 빠르게 하려면 --countdown 0 으로 끈다.
+    if args.countdown > 0:
+        if not args.quiet:
+            print(f"출발 전 {int(args.countdown)}초 카운트다운 (선을 뽑으세요)", flush=True)
+        countdown(link, args.countdown, quiet=args.quiet)
 
     if args.fake:
         dt = 1.0 / cfg.control_hz                  # 시계를 직접 돌린다 (실시간 아님)

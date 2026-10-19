@@ -20,6 +20,9 @@ link.py -- 오렌지파이와 아두이노 사이의 통신
     속도     mm/s. 음수면 후진
     조향     도의 10 배, 정수. 왼쪽이 양수
 
+  파이 -> 아두이노   B,<on>*<검사값>      부저. 1 이면 켜고 0 이면 끈다
+    출발 전 카운트다운 삑삑에 쓴다. 이 명령은 watchdog 을 건드리지 않아 정지에 영향이 없다.
+
 검사값
   * 앞의 글자들을 XOR 한 값을 두 자리 16 진수로 적는다. 선이 흔들려 글자가 깨지면 버린다.
 
@@ -51,6 +54,12 @@ def encode_cmd(speed_mps: float, steer_rad: float) -> bytes:
     """파이 -> 아두이노 한 줄."""
     import math
     body = f"C,{int(round(speed_mps * 1000))},{int(round(math.degrees(steer_rad) * 10))}"
+    return f"{body}*{_checksum(body):02X}\n".encode("ascii")
+
+
+def encode_buzzer(on: bool) -> bytes:
+    """부저를 켜거나 끄는 한 줄. 출발 전 카운트다운 삑삑에 쓴다."""
+    body = f"B,{1 if on else 0}"
     return f"{body}*{_checksum(body):02X}\n".encode("ascii")
 
 
@@ -107,6 +116,9 @@ class SerialLink:
 
     def send(self, speed_mps, steer_rad):
         self.ser.write(encode_cmd(speed_mps, steer_rad))
+
+    def beep(self, on):
+        self.ser.write(encode_buzzer(on))
 
     def poll(self):
         """지금까지 도착한 줄들을 Status 목록으로. 깨진 줄은 버린다."""

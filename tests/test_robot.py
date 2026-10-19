@@ -81,6 +81,30 @@ def test_fake_hardware_drive() -> None:
     assert true_err < 1.0, f"실제 위치가 목적지에서 {true_err:.2f} m 떨어졌다"
 
 
+def test_buzzer_command_round_trip() -> None:
+    """부저 명령 B,1 / B,0 형식과 검사값이 맞아야 한다."""
+    from rccar.link import encode_buzzer
+    on = encode_buzzer(True).decode()
+    off = encode_buzzer(False).decode()
+    assert on.startswith("B,1*") and on.endswith("\n"), f"켜기 형식: {on}"
+    assert off.startswith("B,0*"), f"끄기 형식: {off}"
+    body = "B,1"
+    assert on == f"{body}*{_checksum(body):02X}\n"
+
+
+def test_countdown_beeps_without_moving() -> None:
+    """카운트다운은 부저를 여러 번 울리고, 그 동안 차를 움직이지 않는다 (watchdog 유지)."""
+    import run_robot
+    world, start, _ = S.make("random", 2005)
+    fake = FakeArduino(world, start, rng=np.random.default_rng(0))
+    # 명령을 한 번도 안 보낸 상태에서 카운트다운만 돌린다 (시간을 아끼려 2초)
+    run_robot.countdown(fake, seconds=2, quiet=True)
+    for _ in range(50):                      # 카운트다운 뒤 1초를 흘려 본다
+        fake.advance(0.02)
+    assert fake.beeps >= 2, f"부저가 거의 안 울림: {fake.beeps}회"
+    assert abs(fake.vehicle.v) < 1e-6, "카운트다운 중 차가 움직였다 (부저가 watchdog 을 건드림)"
+
+
 def test_watchdog_stops_car() -> None:
     """명령을 끊으면 차가 스스로 선다. 파이가 죽어도 차는 서야 한다."""
     world, start, _ = S.make("random", 2005)
@@ -179,6 +203,8 @@ TESTS = [
     ("사람 조종 우선", test_manual_override),
     ("뒤 센서 없으면 후진 안 함", test_no_rear_sensor_never_reverses),
     ("주행 기록 CSV", test_drive_log_written),
+    ("부저 명령 형식", test_buzzer_command_round_trip),
+    ("카운트다운 삑삑, 차는 멈춤", test_countdown_beeps_without_moving),
 ]
 
 
