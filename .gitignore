@@ -8,3 +8,6 @@ __pycache__/
 # OS
 Thumbs.db
 desktop.ini
+
+# 가짜 아두이노로 돌린 주행 기록 (실차 기록은 실험 자료라 남김)
+logs/*_fake.csv

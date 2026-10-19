@@ -27,7 +27,7 @@ python run_circle_model.py --layout cup --show   # 한 배치를 그림으로
 python run_circle_model.py --geogebra  # GeoGebra 로 작도해 맞춰 볼 숫자
 python run_circle_model.py --search 1000         # 무작위 배치에서 실패 찾기
 python -m tests.test_circle_model      # 처음 기하 모델 시험 (몇 초)
-python run_robot.py --fake --seed 2005 # 부품 없이 실물 주행 프로그램 시험
+python run_robot.py --fake --seed 2005 # 부품 없이 실물 주행 프로그램 시험 (기록은 logs/ 에)
 python -m tests                        # 시험 전체 (접선 그래프 시험 때문에 수십 분)
 ```
 

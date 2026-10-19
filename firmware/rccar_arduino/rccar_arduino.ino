@@ -2,7 +2,7 @@
   rccar_arduino.ino -- RC카 아래쪽 담당 (아두이노 우노/나노)
 
   이 보드가 하는 일
-    1. ToF 거리 센서 2개를 읽는다. 앞 센서는 서보 위에 올려 좌우로 훑는다.
+    1. 서보 위에 올린 앞 ToF 로 좌우를 훑는다. 뒤 ToF 는 USE_REAR_TOF 가 1 일 때만 읽는다.
     2. 자이로(MPU6050)의 z 축 각속도를 읽는다.
     3. 오렌지파이가 보낸 속도와 조향을 서보와 변속기에 넘긴다.
     4. 명령이 끊기면 스스로 차를 세운다.   <- 이것이 이 보드의 가장 중요한 일
@@ -49,10 +49,15 @@ const uint8_t PIN_ESC         = 11;
 const uint8_t PIN_RC          = 2;      // 쓰지 않으면 USE_RC 를 0 으로
 
 const uint8_t USE_RC = 0;
+// 뒤 ToF 를 달았으면 1. 지금 차는 앞 ToF 하나뿐이라 0 (2026-10-19).
+// 없는 센서를 켜려 하면 시간 초과를 기다리느라 루프가 늦어질 수 있어서 아예 건드리지 않음.
+// rccar/car_specs.py 의 has_rear_tof 와 맞출 것
+const uint8_t USE_REAR_TOF = 0;
 
 const unsigned long WATCHDOG_MS = 300;  // 명령이 이 시간 안 오면 정지
 const int   MAX_SPEED_MMS = 1400;       // 최고 속도 제한 (시뮬레이터와 같은 1.4 m/s)
-const int   MAX_REV_MMS   = 450;
+// 뒤를 못 보면 후진 명령은 받아도 0 으로 자름. 오렌지파이 쪽도 후진을 안 보내지만 한 겹 더 막음
+const int   MAX_REV_MMS   = USE_REAR_TOF ? 450 : 0;
 const float MAX_STEER_DEG = 32.0;       // 차의 최대 조향각
 
 // 조향 서보 보정: 바퀴가 정면일 때의 서보 각도와, 1 도 꺾을 때 서보가 움직이는 양
@@ -131,14 +136,17 @@ void tofBegin() {
   tofFront.setTimeout(100);
   tofFront.init();
   tofFront.setAddress(0x30);
-  digitalWrite(PIN_XSHUT_REAR, HIGH); delay(10);
-  tofRear.setTimeout(100);
-  tofRear.init();
-  tofRear.setAddress(0x31);
+  if (USE_REAR_TOF) {
+    digitalWrite(PIN_XSHUT_REAR, HIGH); delay(10);
+    tofRear.setTimeout(100);
+    tofRear.init();
+    tofRear.setAddress(0x31);
+  }
 
   // AVR 컴파일러는 { } 목록을 도는 for 를 받지 못한다. 배열로 쓴다.
   VL53L1X* sensors[2] = { &tofFront, &tofRear };
-  for (uint8_t i = 0; i < 2; i++) {
+  uint8_t sensorCount = USE_REAR_TOF ? 2 : 1;
+  for (uint8_t i = 0; i < sensorCount; i++) {
     VL53L1X* s = sensors[i];
     s->setDistanceMode(VL53L1X::Long);
     s->setMeasurementTimingBudget(33000);    // 33 ms
@@ -246,8 +254,10 @@ void loop() {
       sweepMovedAt = now; sweepSettled = false;
     }
   }
-  int r = readTof(tofRear);
-  if (r != -2) rearMM = r;
+  if (USE_REAR_TOF) {
+    int r = readTof(tofRear);
+    if (r != -2) rearMM = r;
+  }                                          // 뒤 센서가 없으면 rearMM 은 -1 로 남아 '못 맞힘'으로 보고됨
 
   // ---- 안전 판단: 명령이 끊겼거나 사람이 가져갔으면 멈춘다
   uint8_t flags = 0;

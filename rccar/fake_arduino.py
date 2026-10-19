@@ -36,7 +36,7 @@ class FakeArduino:
                  send_hz=50.0, latency_s=0.02, watchdog_ms=300,
                  gyro_bias_dps=0.2, gyro_noise_dps=0.3,
                  sweep_deg=(-90, 90), sweep_step=15, settle_s=0.090,
-                 servo_rate_dps=300.0, servo_jitter_deg=1.5):
+                 servo_rate_dps=300.0, servo_jitter_deg=1.5, has_rear=True):
         self.V = veh or VehicleParams()
         self.rng = rng or np.random.default_rng(0)
         self.world = world
@@ -80,6 +80,7 @@ class FakeArduino:
         self._front_m = math.inf
         self._rear_m = math.inf
         self.manual = False          # 사람이 조종기로 가져간 상황을 시험하려면 True
+        self.has_rear = has_rear     # 뒤 센서를 안 달았으면 False. 펌웨어 USE_REAR_TOF 와 같음
 
     # ------------------------------------------------------------ link 흉내
     def send(self, speed_mps, steer_rad):
@@ -131,8 +132,9 @@ class FakeArduino:
 
             if self.t >= self._next_send:
                 self._next_send = self.t + self.send_period
-                r = self.rear.measure(self.world, self.vehicle.pose)
-                self._rear_m = float(r.ranges[0])
+                if self.has_rear:
+                    r = self.rear.measure(self.world, self.vehicle.pose)
+                    self._rear_m = float(r.ranges[0])
                 dth_true = self.vehicle.curvature * self.vehicle.v
                 gyro = dth_true + self.gyro_bias + self.rng.normal(0.0, self.gyro_noise)
                 flags = 0

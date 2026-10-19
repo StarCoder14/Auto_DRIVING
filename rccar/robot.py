@@ -42,7 +42,7 @@ from .vehicle import VehicleParams
 class RobotConfig:
     def __init__(self, bounds=(-12.0, -12.0, 12.0, 12.0), grid_res=0.12,
                  control_hz=50.0, plan_hz=10.0, goal_tol=0.45,
-                 max_speed=1.0, rev_speed=0.25, max_time=120.0):
+                 max_speed=1.0, rev_speed=0.25, max_time=120.0, has_rear_sensor=True):
         self.bounds = bounds          # 지도 범위. 출발점이 (0, 0) 이다
         self.grid_res = grid_res
         self.control_hz = control_hz
@@ -51,6 +51,8 @@ class RobotConfig:
         self.max_speed = max_speed    # 실물에서는 시뮬레이터보다 낮춰 시작한다
         self.rev_speed = rev_speed
         self.max_time = max_time
+        # 뒤 센서가 없으면 뒤를 모르므로 후진 탈출을 하지 않음. 갇히면 멈추고 사람이 꺼냄
+        self.has_rear_sensor = has_rear_sensor
 
 
 class Robot:
@@ -104,6 +106,10 @@ class Robot:
         # 계속 멈추면 조금 후진해서 빠져나온다
         self._stop_times = []
         self._escape = None
+        self.stuck = False             # 뒤 센서 없이 갇혀서 스스로 멈춘 상태
+        self._still_since = None
+        self.last_status = None
+        self._log = None
 
     # ------------------------------------------------------------ 자세와 지도
     def on_status(self, s: Status):
@@ -117,6 +123,7 @@ class Robot:
             return
         self.manual = s.manual
         self.speed = s.speed_mps
+        self.last_status = s
 
         # 자세: 방향은 자이로, 거리는 아두이노가 실제로 준 속도
         dth = math.radians(s.gyro_dps) * dt
@@ -128,8 +135,9 @@ class Robot:
 
         # 지도: 앞 센서는 지금 보고 있는 방향, 뒤 센서는 고정
         self._add_measurement(self.front, s.sweep_rad, s.front_m)
-        self._add_measurement(self.rear, math.pi, s.rear_m)
-        self.rear_m, self._rear_t = s.rear_m, self.t
+        if self.C.has_rear_sensor:
+            self._add_measurement(self.rear, math.pi, s.rear_m)
+            self.rear_m, self._rear_t = s.rear_m, self.t
 
         # 출발 준비: 앞 센서가 좌우 끝까지 한 번씩 봤는가
         #
@@ -220,13 +228,13 @@ class Robot:
     def control_cycle(self):
         """50 Hz. 속도와 조향을 정해 아두이노로 보낸다."""
         if self.arrived or self.manual or not self.ready or self.D is None:
-            self.link.send(0.0, 0.0)
+            self._send(0.0, 0.0)
             return
         if self._escape is not None:
             self._escape_step()
             return
         if self.path_poses is None:
-            self.link.send(0.0, 0.0)
+            self._send(0.0, 0.0)
             self._note_stop()
             return
         f = self.follower
@@ -259,7 +267,7 @@ class Robot:
                 self.stats["stops"] += 1
                 self._force_replan = True
                 self._note_stop()
-        self.link.send(v, s)
+        self._send(v, s)
 
     # ------------------------------------------------------------ 멈춤과 탈출
     def _stop_limit(self):
@@ -276,8 +284,26 @@ class Robot:
         """멈춘 시각을 기록하고, 계속 멈춰 있으면 탈출을 시작한다."""
         self._stop_times.append(self.t)
         self._stop_times = [t for t in self._stop_times if self.t - t < 1.0]
-        if len(self._stop_times) >= 25 and abs(self.speed) < 0.05:
+        if len(self._stop_times) >= 25 and abs(self.speed) < 0.05 and self.C.has_rear_sensor:
             self._start_escape()
+
+    # 뒤 센서가 없을 때 이만큼 계속 서 있으면 갇힌 것으로 봄 (초).
+    # 처음엔 '1 초에 25 번 멈춤' 으로 판정했는데, 출발 직후 첫 경로를 찾는 동안 잠깐 서는 것까지
+    # 갇힘으로 봐서 무작위 지도 17 번이 2.4 초 만에 끝났음. 뒤 센서가 있으면 후진 없이 도착하는 지도였음
+    STUCK_SECONDS = 5.0
+
+    def _check_stuck(self):
+        if self.C.has_rear_sensor or not self.ready or self.manual or self.arrived:
+            self._still_since = None
+            return
+        if abs(self.speed) >= 0.05:
+            self._still_since = None
+            return
+        if self._still_since is None:
+            self._still_since = self.t
+        elif self.t - self._still_since > self.STUCK_SECONDS and not self.stuck:
+            self.stuck = True
+            self.stats["stuck"] = self.stats.get("stuck", 0) + 1
 
     def _start_escape(self):
         """
@@ -306,9 +332,9 @@ class Robot:
         if moved >= self.ESCAPE_BACK or blocked or self.t > e["until"]:
             self._escape = None
             self._force_replan = True
-            self.link.send(0.0, 0.0)
+            self._send(0.0, 0.0)
             return
-        self.link.send(-self.ESCAPE_SPEED, 0.0)
+        self._send(-self.ESCAPE_SPEED, 0.0)
 
     # ------------------------------------------------------------ 실행
     def step(self, dt):
@@ -316,6 +342,10 @@ class Robot:
         for s in self.link.poll():
             self.on_status(s)
         self.t += dt
+        self._check_stuck()
+        if self.stuck:
+            self.link.send(0.0, 0.0)
+            return False
         if np.hypot(*(self.pose[:2] - self.goal)) < self.C.goal_tol:
             self.arrived = True
             self.link.send(0.0, 0.0)
@@ -324,6 +354,61 @@ class Robot:
             self.link.send(0.0, 0.0)
             return False
         return True
+
+    @property
+    def end_reason(self):
+        if self.arrived:
+            return "도착"
+        if self.stuck:
+            return "갇힘 (뒤 센서가 없어 후진하지 않고 멈춤)"
+        if self.t > self.C.max_time:
+            return "시간 초과"
+        return "중단"
+
+    # ------------------------------------------------------------ 주행 기록
+    LOG_COLUMNS = ("t_s", "x_m", "y_m", "heading_deg", "speed_mps", "cmd_speed_mps",
+                   "cmd_steer_deg", "sweep_deg", "front_m", "rear_m", "mode", "plans", "stops")
+
+    def open_log(self, path):
+        """추종 주기(50 Hz)마다 한 줄씩 CSV 로 남김. 위치는 차가 믿는 위치 (출발점이 0, 처음 방향이 x 축).
+
+        실차 실험에서 바닥 궤적(진짜 위치)과 이 기록(믿은 위치)을 겹치면
+        기계 오차를 위치 추정 오차와 조향 제어 오차로 한 번 더 나눌 수 있음.
+        """
+        self._log = open(path, "w", encoding="utf-8", newline="")
+        self._log.write(",".join(self.LOG_COLUMNS) + "\n")
+
+    def close_log(self):
+        if self._log is not None:
+            self._log.close()
+            self._log = None
+
+    def _mode(self):
+        if self.manual:
+            return "manual"
+        if self.stuck:
+            return "stuck"
+        if self._escape is not None:
+            return "escape"
+        if not self.ready:
+            return "waiting"
+        if self.path_poses is None:
+            return "no_path"
+        return "drive"
+
+    def _send(self, speed, steer):
+        """아두이노로 명령을 보내고, 기록을 켰으면 그 순간을 한 줄 남김."""
+        self.link.send(speed, steer)
+        if self._log is None:
+            return
+        s = self.last_status
+        sweep = math.degrees(s.sweep_rad) if s else float("nan")
+        front = s.front_m if s else float("inf")
+        rear = s.rear_m if s else float("inf")
+        x, y, th = self.pose
+        self._log.write(f"{self.t:.3f},{x:.4f},{y:.4f},{math.degrees(th):.2f},{self.speed:.3f},"
+                        f"{speed:.3f},{math.degrees(steer):.2f},{sweep:.1f},{front:.3f},{rear:.3f},"
+                        f"{self._mode()},{self.stats['plans']},{self.stats['stops']}\n")
 
     def run(self, on_tick=None):
         """실시간 주행. 50 Hz 로 돌며 10 Hz 마다 계획한다."""
