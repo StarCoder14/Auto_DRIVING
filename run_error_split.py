@@ -7,6 +7,8 @@ run_error_split.py -- 오차를 알고리즘, 센서, 위치 추정, 기계로 �
   python run_error_split.py --map layouts/day1.txt   # 실제로 잰 배치 파일 (형식은 error_split.load_layout)
   python run_error_split.py --map layouts/day1.txt --real-track tracks/day1_run1.txt
                                                      # 실차 궤적까지 붙여 4 단계를 채움
+  python run_error_split.py --map layouts/day1.txt --real-track tracks/day1_run1.txt --robot-log logs/run_....csv
+                                                     # 주행 기록까지 주면 실차 위치 추정 오차도 냄
   python run_error_split.py --save                   # 궤적 그림을 recordings/error_split 에 저장
 
 주요 옵션
@@ -151,6 +153,8 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--car", default="ours", choices=("ours", "sim"))
     parser.add_argument("--real-track", default=None, help="실차 궤적 파일 (배치 파일과 함께)")
+    parser.add_argument("--robot-log", default=None,
+                        help="그 판의 run_robot.py 주행 기록. 주면 실차 위치 추정 오차도 냄")
     parser.add_argument("--max-time", type=float, default=120.0)
     parser.add_argument("--save", action="store_true")
     args = parser.parse_args()
@@ -162,7 +166,10 @@ def main():
         track = None
         if args.real_track:
             track = E.load_track(args.real_track)
-            real = E.real_track_metrics(track, runs[0], goal)
+            believed_end = None
+            if args.robot_log:
+                believed_end = E.load_robot_log(args.robot_log, start)[-1]
+            real = E.real_track_metrics(track, runs[0], goal, believed_end)
         print_map(name, metrics, real)
         all_metrics.append(metrics)
         if args.save:

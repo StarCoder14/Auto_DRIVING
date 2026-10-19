@@ -16,7 +16,9 @@ run_robot.py -- 실제 차를 움직이는 진입점 (오렌지파이에서 실�
 """
 
 import argparse
+import os
 import sys
+import time
 
 import numpy as np
 
@@ -31,11 +33,17 @@ def main():
     ap.add_argument("--max-speed", type=float, default=0.8, help="최고 속도 (m/s)")
     ap.add_argument("--max-time", type=float, default=90.0)
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--log", default=None, help="주행 기록 CSV 경로. 안 주면 logs/ 에 시각으로 이름을 지음")
+    ap.add_argument("--no-log", action="store_true", help="주행 기록을 남기지 않음")
     args = ap.parse_args()
 
     from rccar import car_specs
+    from rccar.hybrid import HybridParams
     from rccar.robot import Robot, RobotConfig
-    cfg = RobotConfig(max_speed=args.max_speed, max_time=args.max_time)
+    has_rear = car_specs.has_rear_sensor()
+    cfg = RobotConfig(max_speed=args.max_speed, max_time=args.max_time, has_rear_sensor=has_rear)
+    # 뒤를 못 보면 후진 경로도 만들지 않음
+    hp = HybridParams(allow_reverse=has_rear)
     # 실제 차를 움직이는 프로그램이라 늘 잰 값을 씀. 가짜 아두이노도 같은 차로 흉내 내야 시험이 의미 있음
     veh = car_specs.vehicle_params()
 
@@ -43,7 +51,8 @@ def main():
         from rccar import scenarios as S
         from rccar.fake_arduino import FakeArduino
         world, start, goal = S.make("random", args.seed)
-        link = FakeArduino(world, start, veh=veh, rng=np.random.default_rng(args.seed))
+        link = FakeArduino(world, start, veh=veh, rng=np.random.default_rng(args.seed),
+                           has_rear=has_rear)
         if args.goal is None:                      # 지도의 목적지를 차 기준으로 바꾼다
             d = goal - start[:2]
             c, s = np.cos(-start[2]), np.sin(-start[2])
@@ -59,7 +68,15 @@ def main():
         link = SerialLink(args.port)
         goal_local = np.array(args.goal, float)
 
-    rb = Robot(link, goal_local, veh=veh, cfg=cfg)
+    rb = Robot(link, goal_local, veh=veh, cfg=cfg, hp=hp)
+    log_path = None
+    if not args.no_log:
+        log_path = args.log
+        if log_path is None:
+            os.makedirs("logs", exist_ok=True)
+            stamp = time.strftime("run_%Y%m%d_%H%M%S") + ("_fake" if args.fake else "")
+            log_path = os.path.join("logs", stamp + ".csv")
+        rb.open_log(log_path)
 
     def tick(r, k):
         if args.quiet or k % 25:
@@ -83,8 +100,11 @@ def main():
     else:
         ok = rb.run(on_tick=tick)
 
-    print(f"\n도착={ok}  시간 {rb.t:.1f}s  계획 {rb.stats['plans']}회  "
+    rb.close_log()
+    print(f"\n결과: {rb.end_reason}  시간 {rb.t:.1f}s  계획 {rb.stats['plans']}회  "
           f"경로채택 {rb.stats['replans']}회  예측정지 {rb.stats['stops']}회")
+    if log_path:
+        print(f"주행 기록: {log_path}")
     link.close()
     return 0 if ok else 1
 

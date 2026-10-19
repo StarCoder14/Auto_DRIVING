@@ -206,12 +206,34 @@ def split_one_map(world, start, goal, seed, make_vehicle, max_time=120.0):
     return runs, [compare(run, runs[0]) for run in runs]
 
 
-def real_track_metrics(track_points, baseline, goal):
-    """4 단계. 바닥에 남은 궤적을 재서 넣은 점들(m)로 같은 지표를 냄."""
+def real_track_metrics(track_points, baseline, goal, believed_end=None):
+    """4 단계. 바닥에 남은 궤적을 재서 넣은 점들(m)로 같은 지표를 냄.
+
+    believed_end 는 주행 기록에서 차가 마지막에 믿은 위치 (배치 좌표로 옮긴 것).
+    주면 실차의 위치 추정 오차도 냄. 차체 여유는 바닥 궤적만으로는 못 재서 비워 둠.
+    """
     track = np.asarray(track_points, float)
     run = {"trail": track, "length": path_length(track),
            "final_error": float(np.hypot(*(track[-1] - np.asarray(goal)[:2]))), "success": True}
+    if believed_end is not None:
+        run["localization_error"] = float(np.hypot(*(np.asarray(believed_end) - track[-1])))
     return compare(run, baseline)
+
+
+def load_robot_log(path, start_pose):
+    """run_robot.py 의 주행 기록에서 차가 믿은 위치를 읽어 배치 좌표로 옮김.
+
+    주행 기록은 출발점이 (0, 0), 처음 방향이 x 축임. 배치 파일의 출발 자세로 돌리고 옮기면
+    바닥 궤적과 같은 좌표가 됨.
+    """
+    import csv
+    with open(path, encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+    local = np.array([(float(row["x_m"]), float(row["y_m"])) for row in rows])
+    x, y, heading = start_pose
+    c, s = np.cos(heading), np.sin(heading)
+    return np.stack([x + c * local[:, 0] - s * local[:, 1],
+                     y + s * local[:, 0] + c * local[:, 1]], axis=1)
 
 
 # ── 실측 배치 파일 ───────────────────────────────────────────────────

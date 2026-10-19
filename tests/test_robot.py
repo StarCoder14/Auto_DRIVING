@@ -116,6 +116,59 @@ def test_manual_override() -> None:
     assert abs(fake._cmd[0]) < 1e-9, "사람 조종 중인데 속도를 보냈다"
 
 
+def _fake_drive(seed, has_rear, log_path=None, max_time=60):
+    """가짜 아두이노로 한 판 달리고, 보낸 속도 명령을 전부 모아 돌려줌."""
+    from rccar.hybrid import HybridParams
+    world, start, goal = S.make("random", seed)
+    fake = FakeArduino(world, start, rng=np.random.default_rng(1), has_rear=has_rear)
+    sent = []
+    original_send = fake.send
+    fake.send = lambda v, s: (sent.append(v), original_send(v, s))
+    d = goal - start[:2]
+    c, s = math.cos(-start[2]), math.sin(-start[2])
+    goal_local = np.array([c * d[0] - s * d[1], s * d[0] + c * d[1]])
+    rb = Robot(fake, goal_local, cfg=RobotConfig(max_time=max_time, has_rear_sensor=has_rear),
+               hp=HybridParams(allow_reverse=has_rear))
+    if log_path:
+        rb.open_log(log_path)
+    k = 0
+    while rb.step(0.02):
+        if k % 5 == 0:
+            rb.plan_cycle()
+        rb.control_cycle()
+        fake.advance(0.02)
+        k += 1
+    rb.close_log()
+    return rb, sent
+
+
+def test_no_rear_sensor_never_reverses() -> None:
+    """뒤 센서가 없으면 후진 명령을 한 번도 보내면 안 됨. 갇히면 서서 '갇힘' 으로 끝나야 함."""
+    for seed in (2005, 2016, 17, 4023):
+        rb, sent = _fake_drive(seed, has_rear=False)
+        assert min(sent) >= 0.0, f"지도 {seed}: 뒤를 못 보는데 후진 명령 {min(sent):.2f} m/s"
+        assert rb.arrived or rb.stuck, f"지도 {seed}: 도착도 갇힘도 아닌 채 끝남 ({rb.end_reason})"
+    rb, _ = _fake_drive(4023, has_rear=False)
+    assert rb.stuck, "지도 4023 은 뒤 센서 없이 갇혀야 함 (갇힘 판정이 안 켜짐)"
+
+
+def test_drive_log_written() -> None:
+    """주행 기록 CSV 에 머리글과 50 Hz 줄이 쌓여야 함."""
+    import os
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(), "run.csv")
+    rb, _ = _fake_drive(2005, has_rear=False, log_path=path)
+    with open(path, encoding="utf-8") as file:
+        lines = file.read().splitlines()
+    assert lines[0].split(",") == list(Robot.LOG_COLUMNS), f"머리글이 다름: {lines[0]}"
+    rows = [line.split(",") for line in lines[1:]]
+    assert all(len(row) == len(Robot.LOG_COLUMNS) for row in rows), "칸 수가 다른 줄이 있음"
+    expected = rb.t * 50
+    assert len(rows) > 0.8 * expected, f"줄이 너무 적음: {len(rows)} (약 {expected:.0f} 예상)"
+    modes = {row[Robot.LOG_COLUMNS.index("mode")] for row in rows}
+    assert "drive" in modes and "waiting" in modes, f"주행 상태가 안 남음: {modes}"
+
+
 TESTS = [
     ("명령 문장 형식", test_cmd_round_trip),
     ("상태 문장 해석", test_status_parse),
@@ -124,6 +177,8 @@ TESTS = [
     ("가짜 장치로 실제 주행", test_fake_hardware_drive),
     ("명령이 끊기면 정지", test_watchdog_stops_car),
     ("사람 조종 우선", test_manual_override),
+    ("뒤 센서 없으면 후진 안 함", test_no_rear_sensor_never_reverses),
+    ("주행 기록 CSV", test_drive_log_written),
 ]
 
 
