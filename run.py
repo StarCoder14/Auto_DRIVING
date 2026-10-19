@@ -16,6 +16,7 @@ run.py -- 실행 진입점
   --speed        1.0 이 실시간. 2.0 이면 2배속
   --no-graph     접선 그래프를 그리지 않는다 (훨씬 가볍다)
   --seed         노이즈 시드
+  --car          sim(기본, 시뮬레이터 기본 차) 또는 ours(rccar/car_specs.py 에 잰 우리 차)
 """
 
 import argparse
@@ -23,6 +24,7 @@ import os
 import sys
 import numpy as np
 
+from rccar import car_specs
 from rccar import scenarios as S
 from rccar.simulator import Simulator, SimConfig
 from rccar.hybrid_sim import HybridSimulator
@@ -51,7 +53,7 @@ def out_path(name):
 def build(args):
     world, start, goal = S.make(args.scenario, args.seed)
     rng = np.random.default_rng(args.seed)
-    veh = VehicleParams()
+    veh = car_specs.vehicle_params() if args.car == "ours" else VehicleParams()
     cfg = SimConfig(max_time=args.max_time, max_verts=args.verts)
 
     if args.sensor != "lidar":
@@ -80,6 +82,8 @@ def main():
     ap.add_argument("--sensor", default="lidar", choices=("lidar",) + SENSOR_SETS,
                     help="lidar: 기존 360도 라이다 (기본). 나머지는 싼 센서 조합")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--car", default="sim", choices=("sim", "ours"),
+                    help="sim: 시뮬레이터 기본 차, ours: car_specs.py 에 잰 우리 차")
     ap.add_argument("--speed", type=float, default=5.0, help="재생 배속")
     ap.add_argument("--record", default=None, help="저장할 mp4/gif 경로")
     ap.add_argument("--snapshot", default=None, help="정지 화면 저장 경로(png)")

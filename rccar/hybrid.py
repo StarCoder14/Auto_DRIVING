@@ -92,7 +92,7 @@ class Footprint:
     """
 
     def __init__(self, veh, n=3):
-        rear = 0.5 * (veh.length - veh.wheelbase) + 0.02   # vehicle.footprint 와 같은 값
+        rear = veh.rear_overhang_m                          # vehicle.footprint 와 같은 값
         seg = veh.length / n
         self.offsets = np.array([-rear + seg * (k + 0.5) for k in range(n)])
         self.radius = float(hypot(seg / 2, veh.width / 2))

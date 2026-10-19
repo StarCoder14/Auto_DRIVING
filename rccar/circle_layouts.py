@@ -7,10 +7,11 @@ circle_layouts.py -- 처음 기하 모델을 시험할 장애물 배치
 
 import random
 
+from . import car_specs
 from .circle_model import Circle, distance
 
 ARENA = 1.5                 # 실험 평면 한 변 (m)
-CAR_HALF_WIDTH = 0.07       # 차 반폭 (m). 실제 차를 재면 바꿀 것
+CAR_HALF_WIDTH = car_specs.half_width_m(fallback=0.07)   # 차 반폭 (m). car_specs.py 에 전폭을 재 넣으면 따라감
 
 
 class Layout:
