@@ -2,7 +2,7 @@
   rccar_arduino.ino -- RC카 아래쪽 담당 (아두이노 우노/나노)
 
   이 보드가 하는 일
-    1. 서보 위에 올린 앞 ToF 로 좌우를 훑는다. 뒤 ToF 는 USE_REAR_TOF 가 1 일 때만 읽는다.
+    1. 서보 위에 올린 앞 거리 센서(샤프 적외선)로 좌우를 훑는다. 뒤 센서는 없다.
     2. 자이로(MPU6050)의 z 축 각속도를 읽는다.
     3. 오렌지파이가 보낸 속도와 조향을 서보와 변속기에 넘긴다.
     4. 명령이 끊기면 스스로 차를 세운다.   <- 이것이 이 보드의 가장 중요한 일
@@ -13,10 +13,9 @@
   통신 형식은 rccar/link.py 머리말에 적혀 있다. 글자로 주고받아서 시리얼 모니터로 볼 수 있다.
 
   배선 (핀 번호는 아래 상수에서 바꾼다)
-    I2C : SDA A4, SCL A5   (ToF 2개와 자이로가 같은 선을 쓴다)
-    앞 ToF XSHUT  D7      주소를 바꾸려고 하나씩 켠다
-    뒤 ToF XSHUT  D8
-    센서 서보     D9      앞 ToF 를 좌우로 돌린다
+    I2C : SDA A4, SCL A5   (자이로 MPU6050)
+    앞 거리 센서  A0       샤프 적외선 GP2Y0A21 의 신호선 (아날로그)
+    센서 서보     D9      앞 거리 센서를 좌우로 돌린다
     조향 서보     D10
     변속기(ESC)   D11
     RC 수신기     D2      사람이 조종기로 뺏을 때 (선택)
@@ -26,9 +25,9 @@
     20 판 중 11 판에서 기둥에 박았다. 잴 때 각도가 평균 34 도 어긋나기 때문이다.
 
   필요한 라이브러리 (아두이노 IDE 라이브러리 매니저에서 설치)
-    VL53L1X        by Pololu
     Servo          (기본 제공)
     Wire           (기본 제공)
+    (샤프 거리 센서는 아날로그라 라이브러리가 필요 없다)
 
   안전 규칙
     - 최고 속도를 소프트웨어로 제한한다. 실제 RC카는 훨씬 빠르다.
@@ -38,11 +37,11 @@
 
 #include <Wire.h>
 #include <Servo.h>
-#include <VL53L1X.h>
 
 // ---------------------------------------------------------------- 설정
-const uint8_t PIN_XSHUT_FRONT = 7;
-const uint8_t PIN_XSHUT_REAR  = 8;
+// 앞 거리 센서는 샤프 적외선 GP2Y0A21YK0F (아날로그, 10~80 cm). 신호선을 A0 에 꽂는다.
+// 전에는 레이저 ToF(VL53L1X)였는데, 이 차는 계획서대로 샤프를 쓴다 (2026-10-21).
+const uint8_t PIN_SHARP_FRONT = A0;
 const uint8_t PIN_SWEEP_SERVO = 9;
 const uint8_t PIN_STEER_SERVO = 10;
 const uint8_t PIN_ESC         = 11;
@@ -54,10 +53,17 @@ const uint8_t PIN_BUZZER      = 13;     // 이 차의 부저는 D13 (나노의 L
 const uint8_t USE_BUZZER = 1;
 
 const uint8_t USE_RC = 0;
-// 뒤 ToF 를 달았으면 1. 지금 차는 앞 ToF 하나뿐이라 0 (2026-10-19).
-// 없는 센서를 켜려 하면 시간 초과를 기다리느라 루프가 늦어질 수 있어서 아예 건드리지 않음.
-// rccar/car_specs.py 의 has_rear_tof 와 맞출 것
-const uint8_t USE_REAR_TOF = 0;
+const uint8_t USE_REAR_TOF = 0;        // 뒤 거리 센서 없음
+
+// 샤프 적외선은 거리를 전압으로 준다. 1/거리 가 ADC 값에 선형이라, 거리(mm) = K / (adc - B).
+// 이 두 상수는 2026-10-21 교정값이다 (계획서 6-다-4). firmware/sharp_calib 로 재서 정했다.
+// 측정: 20cm->276, 30cm->187, 40cm->146, 50cm->113, 60cm->93 (ADC). 20~50cm 오차 몇 mm.
+// 센서를 바꾸거나 전원 전압이 달라지면 다시 교정할 것.
+const float SHARP_K = 54428.0;
+const float SHARP_B = 5.16;
+const int   SHARP_MIN_MM = 100;        // 이보다 가까우면 값이 뒤집혀 믿을 수 없다 (10 cm)
+const int   SHARP_MAX_MM = 800;        // 이보다 멀면 '없음'으로 본다 (80 cm)
+const uint8_t SHARP_SAMPLES = 5;       // 아날로그 잡음이 커서 여러 번 읽어 중앙값을 쓴다
 
 const unsigned long WATCHDOG_MS = 300;  // 명령이 이 시간 안 오면 정지
 const int   MAX_SPEED_MMS = 1400;       // 최고 속도 제한 (시뮬레이터와 같은 1.4 m/s)
@@ -88,7 +94,6 @@ const float SWEEP_CENTER_DEG = 90.0;
 
 // ---------------------------------------------------------------- 상태
 Servo sweepServo, steerServo, esc;
-VL53L1X tofFront, tofRear;
 
 int   sweepDeg = 0;
 int   sweepDir = SWEEP_STEP_DEG;
@@ -132,37 +137,22 @@ int16_t mpuRawZ() {
 }
 
 // ---------------------------------------------------------------- 센서
-void tofBegin() {
-  pinMode(PIN_XSHUT_FRONT, OUTPUT); digitalWrite(PIN_XSHUT_FRONT, LOW);
-  pinMode(PIN_XSHUT_REAR,  OUTPUT); digitalWrite(PIN_XSHUT_REAR,  LOW);
-  delay(10);
-  // 두 센서가 같은 주소로 나오므로, 하나씩 켜서 주소를 바꾼다
-  digitalWrite(PIN_XSHUT_FRONT, HIGH); delay(10);
-  tofFront.setTimeout(100);
-  tofFront.init();
-  tofFront.setAddress(0x30);
-  if (USE_REAR_TOF) {
-    digitalWrite(PIN_XSHUT_REAR, HIGH); delay(10);
-    tofRear.setTimeout(100);
-    tofRear.init();
-    tofRear.setAddress(0x31);
-  }
-
-  // AVR 컴파일러는 { } 목록을 도는 for 를 받지 못한다. 배열로 쓴다.
-  VL53L1X* sensors[2] = { &tofFront, &tofRear };
-  uint8_t sensorCount = USE_REAR_TOF ? 2 : 1;
-  for (uint8_t i = 0; i < sensorCount; i++) {
-    VL53L1X* s = sensors[i];
-    s->setDistanceMode(VL53L1X::Long);
-    s->setMeasurementTimingBudget(33000);    // 33 ms
-    s->startContinuous(33);
-  }
+void sharpBegin() {
+  pinMode(PIN_SHARP_FRONT, INPUT);           // 아날로그 입력. 따로 켤 것이 없다
 }
 
-int readTof(VL53L1X& s) {
-  if (!s.dataReady()) return -2;             // 아직 안 나옴. 지난 값을 유지
-  int mm = s.read(false);
-  if (s.timeoutOccurred() || s.ranging_data.range_status != VL53L1X::RangeValid) return -1;
+// 샤프 센서 한 번 읽어 거리(mm). 범위 밖이거나 못 믿을 값이면 -1.
+// 아날로그 값이 튀어서 여러 번 읽어 중앙값을 쓴다 (버블 정렬, 개수가 적어 충분하다).
+int readSharp() {
+  int s[SHARP_SAMPLES];
+  for (uint8_t i = 0; i < SHARP_SAMPLES; i++) s[i] = analogRead(PIN_SHARP_FRONT);
+  for (uint8_t i = 0; i < SHARP_SAMPLES - 1; i++)
+    for (uint8_t j = 0; j < SHARP_SAMPLES - 1 - i; j++)
+      if (s[j] > s[j + 1]) { int t = s[j]; s[j] = s[j + 1]; s[j + 1] = t; }
+  int adc = s[SHARP_SAMPLES / 2];
+  if (adc <= SHARP_B) return -1;             // 전압이 바닥 — 아주 멀거나 아무것도 없음
+  int mm = (int)(SHARP_K / (adc - SHARP_B));
+  if (mm < SHARP_MIN_MM || mm > SHARP_MAX_MM) return -1;
   return mm;
 }
 
@@ -244,7 +234,7 @@ void setup() {
   if (USE_RC) pinMode(PIN_RC, INPUT);
   if (USE_BUZZER) { pinMode(PIN_BUZZER, OUTPUT); beepSet(false); }
 
-  tofBegin();
+  sharpBegin();
   mpuBegin();                                // 이 동안 차를 가만히 둘 것
   lastCmdAt = millis();
   sweepMovedAt = millis();
@@ -261,9 +251,8 @@ void loop() {
   unsigned long now = millis();
   if (!sweepSettled && now - sweepMovedAt >= SWEEP_SETTLE_MS) sweepSettled = true;
   if (sweepSettled) {
-    int v = readTof(tofFront);
-    if (v != -2) {
-      frontMM = v;
+    frontMM = readSharp();                   // 샤프는 늘 바로 값을 준다 (ToF 처럼 '준비중'이 없다)
+    {
       sweepDeg += sweepDir;                  // 다음 방향으로
       if (sweepDeg > SWEEP_MAX_DEG) { sweepDeg = SWEEP_MAX_DEG - SWEEP_STEP_DEG; sweepDir = -SWEEP_STEP_DEG; }
       if (sweepDeg < SWEEP_MIN_DEG) { sweepDeg = SWEEP_MIN_DEG + SWEEP_STEP_DEG; sweepDir =  SWEEP_STEP_DEG; }
@@ -271,10 +260,7 @@ void loop() {
       sweepMovedAt = now; sweepSettled = false;
     }
   }
-  if (USE_REAR_TOF) {
-    int r = readTof(tofRear);
-    if (r != -2) rearMM = r;
-  }                                          // 뒤 센서가 없으면 rearMM 은 -1 로 남아 '못 맞힘'으로 보고됨
+  // 뒤 거리 센서는 없다. rearMM 은 -1 로 남아 '못 맞힘'으로 보고된다.
 
   // ---- 안전 판단: 명령이 끊겼거나 사람이 가져갔으면 멈춘다
   uint8_t flags = 0;
