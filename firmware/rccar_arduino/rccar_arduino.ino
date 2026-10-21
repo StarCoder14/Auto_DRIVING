@@ -17,7 +17,7 @@
     앞 거리 센서  A0       샤프 적외선 GP2Y0A21 의 신호선 (아날로그)
     센서 서보     D9      앞 거리 센서를 좌우로 돌린다
     조향 서보     D10
-    변속기(ESC)   D11
+    DC 모터 드라이버 L9110S : A-1A D5, A-1B D6  (VCC 는 모터 배터리, GND 공통)
     RC 수신기     D2      사람이 조종기로 뺏을 때 (선택)
 
   센서 서보 고를 때
@@ -44,7 +44,10 @@
 const uint8_t PIN_SHARP_FRONT = A0;
 const uint8_t PIN_SWEEP_SERVO = 9;
 const uint8_t PIN_STEER_SERVO = 10;
-const uint8_t PIN_ESC         = 11;
+// 구동 모터는 DC 모터 + L9110S 드라이버. A 채널만 쓴다 (A-1A, A-1B).
+// L9110: 한쪽에 PWM 을 주고 다른 쪽을 0 으로 두면 그 방향으로 돈다. 둘 다 0 이면 정지.
+const uint8_t PIN_MOTOR_A1A   = 5;      // 드라이버 A-1A (PWM 핀)
+const uint8_t PIN_MOTOR_A1B   = 6;      // 드라이버 A-1B (PWM 핀)
 const uint8_t PIN_RC          = 2;      // 쓰지 않으면 USE_RC 를 0 으로
 const uint8_t PIN_BUZZER      = 13;     // 이 차의 부저는 D13 (나노의 L LED 와 같은 핀)
 
@@ -75,9 +78,8 @@ const float MAX_STEER_DEG = 32.0;       // 차의 최대 조향각
 const float STEER_CENTER_DEG = 90.0;
 const float STEER_GAIN       = 1.0;     // 실측해서 고칠 것
 
-// 변속기 보정: 정지일 때 1500 us. 앞뒤로 얼마나 벌릴지
-const int ESC_NEUTRAL_US = 1500;
-const int ESC_SPAN_US    = 400;         // 최고 속도에서 1900 us
+// DC 모터는 아주 느린 속도에서 안 돌고 소리만 난다. 이 PWM(0~255) 아래로는 0 으로 본다.
+const int MOTOR_MIN_PWM = 60;
 
 // 앞 센서가 훑는 각도 (도). 시뮬레이터의 tof_sweep 과 같은 범위
 const int SWEEP_MIN_DEG = -90;
@@ -93,7 +95,7 @@ const unsigned long SWEEP_SETTLE_MS = 90;
 const float SWEEP_CENTER_DEG = 90.0;
 
 // ---------------------------------------------------------------- 상태
-Servo sweepServo, steerServo, esc;
+Servo sweepServo, steerServo;
 
 int   sweepDeg = 0;
 int   sweepDir = SWEEP_STEP_DEG;
@@ -215,9 +217,21 @@ void beepSet(bool on) {
 // ---------------------------------------------------------------- 출력
 void applyOutputs(int speedMMS, float steerDeg) {
   steerServo.write(constrain(STEER_CENTER_DEG + STEER_GAIN * steerDeg, 0, 180));
-  int us = ESC_NEUTRAL_US + (int)((long)speedMMS * ESC_SPAN_US / MAX_SPEED_MMS);
-  esc.writeMicroseconds(constrain(us, ESC_NEUTRAL_US - ESC_SPAN_US,
-                                  ESC_NEUTRAL_US + ESC_SPAN_US));
+
+  // 속도(mm/s)를 PWM(0~255)으로. 부호가 방향.
+  int pwm = (int)((long)abs(speedMMS) * 255 / MAX_SPEED_MMS);
+  pwm = constrain(pwm, 0, 255);
+  if (pwm < MOTOR_MIN_PWM) pwm = 0;        // 너무 느리면 안 돌고 소리만 나므로 끈다
+  if (pwm == 0) {                          // 정지
+    analogWrite(PIN_MOTOR_A1A, 0);
+    analogWrite(PIN_MOTOR_A1B, 0);
+  } else if (speedMMS > 0) {               // 전진
+    analogWrite(PIN_MOTOR_A1A, pwm);
+    analogWrite(PIN_MOTOR_A1B, 0);
+  } else {                                 // 후진
+    analogWrite(PIN_MOTOR_A1A, 0);
+    analogWrite(PIN_MOTOR_A1B, pwm);
+  }
 }
 
 // ---------------------------------------------------------------- 시작
@@ -228,8 +242,9 @@ void setup() {
 
   sweepServo.attach(PIN_SWEEP_SERVO);
   steerServo.attach(PIN_STEER_SERVO);
-  esc.attach(PIN_ESC);
-  applyOutputs(0, 0);                       // 변속기가 중립을 보고 준비되도록
+  pinMode(PIN_MOTOR_A1A, OUTPUT);
+  pinMode(PIN_MOTOR_A1B, OUTPUT);
+  applyOutputs(0, 0);                       // 모터 정지 상태로 시작
   sweepServo.write(SWEEP_CENTER_DEG);
   if (USE_RC) pinMode(PIN_RC, INPUT);
   if (USE_BUZZER) { pinMode(PIN_BUZZER, OUTPUT); beepSet(false); }
