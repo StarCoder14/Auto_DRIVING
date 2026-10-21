@@ -15,13 +15,13 @@ from math import atan, degrees, sqrt
 from .vehicle import VehicleParams
 
 MEASURED = {
-    # 차체
-    "length_cm": None,              # 전장. 범퍼 포함 가장 앞에서 가장 뒤까지
-    "width_cm": None,               # 전폭. 바퀴 포함 가장 바깥끼리
-    "wheelbase_cm": None,           # 축거. 앞바퀴 중심에서 뒷바퀴 중심까지
-    "track_cm": None,               # 윤거. 왼쪽 바퀴 중심에서 오른쪽 바퀴 중심까지
-    "rear_overhang_cm": None,       # 뒷바퀴 축에서 차 뒤끝까지
-    "wheel_diameter_cm": None,
+    # 차체 (2026-10-21 실측)
+    "length_cm": 22.0,              # 전장. 범퍼 포함 가장 앞에서 가장 뒤까지
+    "width_cm": 12.0,               # 전폭. 바퀴 포함 가장 바깥끼리
+    "wheelbase_cm": 15.0,           # 축거. 앞바퀴 중심에서 뒷바퀴 중심까지
+    "track_cm": None,               # 윤거. 왼쪽 바퀴 중심에서 오른쪽 바퀴 중심까지 (아직)
+    "rear_overhang_cm": 4.0,        # 뒷바퀴 축에서 차 뒤끝까지 (앞끝 18 cm = 22 - 4, 자동 계산)
+    "wheel_diameter_cm": 5.5,
 
     # 조향. 핸들을 끝까지 꺾고 손으로 천천히 밀어 한 바퀴 돌 때, 바깥 앞바퀴 자국 원의 지름
     "turn_diameter_left_cm": None,
