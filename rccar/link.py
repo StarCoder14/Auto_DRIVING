@@ -126,6 +126,12 @@ class SerialLink:
         out = []
         while b"\n" in self._buf:
             raw, _, self._buf = self._buf.partition(b"\n")
+            line = raw.decode("ascii", "ignore").strip()
+            if line.startswith("G,") and "*" in line:
+                body, cs = line.split("*", 1)
+                if f"{_checksum(body):02X}" == cs.upper():
+                    self.goal_cm = int(body[2:])
+                continue
             st = parse_status(raw.decode("ascii", "ignore"))
             if st is not None:
                 out.append(st)

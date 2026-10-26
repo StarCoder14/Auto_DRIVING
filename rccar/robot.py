@@ -341,6 +341,13 @@ class Robot:
         """시간을 dt 만큼 진행한다. 실제로는 run() 이 실시간으로 부른다."""
         for s in self.link.poll():
             self.on_status(s)
+        g = getattr(self.link, "goal_cm", None)
+        if g:
+            self.link.goal_cm = None
+            x, y, th = self.pose
+            d = g / 100.0 + self.C.goal_tol
+            self.goal = np.array([x + d * math.cos(th), y + d * math.sin(th)])
+            self._force_replan = True
         self.t += dt
         self._check_stuck()
         if self.stuck:

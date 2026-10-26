@@ -41,7 +41,9 @@
 #include <IRremote.hpp>
 const uint8_t PIN_IR = 2;
 bool irPaused = true;
-unsigned long irAt = 0;
+bool irHasGoal = false;
+int irNum = 0;
+const uint8_t IR_DIGITS[10] = {0x16,0x0C,0x18,0x5E,0x08,0x1C,0x5A,0x42,0x52,0x4A};
 
 // ---------------------------------------------------------------- 설정
 // 앞 거리 센서는 샤프 적외선 GP2Y0A21YK0F (아날로그, 10~80 cm). 신호선을 A0 에 꽂는다.
@@ -281,6 +283,18 @@ void setup() {
 }
 
 // ---------------------------------------------------------------- 반복
+void irBeep(int ms) { beepSet(true); delay(ms); beepSet(false); }
+
+void sendGoal(int cm) {
+  char b[16];
+  int n = snprintf(b, sizeof(b), "G,%d", cm);
+  Serial.print(b);
+  Serial.print('*');
+  char h[4];
+  snprintf(h, sizeof(h), "%02X", checksum(b, n));
+  Serial.println(h);
+}
+
 void loop() {
   readSerial();
 
@@ -313,10 +327,17 @@ void loop() {
     if (manual) flags |= 4;
   }
   if (IrReceiver.decode()) {
-    if (IrReceiver.decodedIRData.protocol != UNKNOWN && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) && now - irAt > 400) {
-      irPaused = !irPaused;
-      irAt = now;
-      beepSet(true); delay(irPaused ? 400 : 100); beepSet(false);
+    uint8_t c = IrReceiver.decodedIRData.command;
+    if (IrReceiver.decodedIRData.protocol != UNKNOWN && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) {
+      int d = -1;
+      for (int i = 0; i < 10; i++) if (IR_DIGITS[i] == c) d = i;
+      if (!irPaused) { irPaused = true; irBeep(400); }
+      else if (d >= 0) { irNum = (irNum * 10 + d) % 1000; irBeep(30); }
+      else if (c == 0x09) { irNum = 0; irBeep(200); }
+      else if (c == 0x43 && (irNum > 0 || irHasGoal)) {
+        if (irNum > 0) { sendGoal(irNum); irNum = 0; irHasGoal = true; }
+        irPaused = false; irBeep(100);
+      }
     }
     IrReceiver.resume();
   }
