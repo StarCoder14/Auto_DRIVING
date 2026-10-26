@@ -38,6 +38,10 @@
 
 #include <Wire.h>
 #include <Servo.h>
+#include <IRremote.hpp>
+const uint8_t PIN_IR = 2;
+bool irPaused = true;
+unsigned long irAt = 0;
 
 // ---------------------------------------------------------------- 설정
 // 앞 거리 센서는 샤프 적외선 GP2Y0A21YK0F (아날로그, 10~80 cm). 신호선을 A0 에 꽂는다.
@@ -271,6 +275,7 @@ void setup() {
 
   sharpBegin();
   mpuBegin();                                // 이 동안 차를 가만히 둘 것
+  IrReceiver.begin(PIN_IR, DISABLE_LED_FEEDBACK);
   lastCmdAt = millis();
   sweepMovedAt = millis();
 }
@@ -307,6 +312,15 @@ void loop() {
     manual = (w > 1700);                     // 조종기 스위치를 올리면 사람이 운전
     if (manual) flags |= 4;
   }
+  if (IrReceiver.decode()) {
+    if (IrReceiver.decodedIRData.protocol != UNKNOWN && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) && now - irAt > 400) {
+      irPaused = !irPaused;
+      irAt = now;
+      beepSet(true); delay(irPaused ? 400 : 100); beepSet(false);
+    }
+    IrReceiver.resume();
+  }
+  if (irPaused) { manual = true; flags |= 4; }
   bool late = (millis() - lastCmdAt) > WATCHDOG_MS;
   if (late) flags |= 8;
 
