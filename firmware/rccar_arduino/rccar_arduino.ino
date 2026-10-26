@@ -17,7 +17,8 @@
     앞 거리 센서  A0       샤프 적외선 GP2Y0A21 의 신호선 (아날로그)
     센서 서보     D9      앞 거리 센서를 좌우로 돌린다
     조향 서보     D10
-    DC 모터 드라이버 L9110S : A-1A D5, A-1B D6  (VCC 는 모터 배터리, GND 공통)
+    DC 모터 2개, 드라이버 L9110S : B-1A D4, B-1B D5, A-1A D6, A-1B D7
+                                 (VCC 는 모터 배터리, GND 공통)
     RC 수신기     D2      사람이 조종기로 뺏을 때 (선택)
 
   센서 서보 고를 때
@@ -44,10 +45,16 @@
 const uint8_t PIN_SHARP_FRONT = A0;
 const uint8_t PIN_SWEEP_SERVO = 9;
 const uint8_t PIN_STEER_SERVO = 10;
-// 구동 모터는 DC 모터 + L9110S 드라이버. A 채널만 쓴다 (A-1A, A-1B).
-// L9110: 한쪽에 PWM 을 주고 다른 쪽을 0 으로 두면 그 방향으로 돈다. 둘 다 0 이면 정지.
-const uint8_t PIN_MOTOR_A1A   = 5;      // 드라이버 A-1A (PWM 핀)
-const uint8_t PIN_MOTOR_A1B   = 6;      // 드라이버 A-1B (PWM 핀)
+// 구동 모터는 DC 모터 2개 + L9110S 드라이버. A, B 두 채널을 같은 속도로 돌린다.
+// L9110: 두 입력의 차이로 돈다. 둘 다 LOW 면 정지.
+// 나노에서 PWM 이 되는 핀은 3 5 6 9 10 11 뿐이라, 채널마다 PWM 핀 하나(세기) + 보통 핀 하나(방향)로 쓴다.
+const uint8_t PIN_MOTOR_B1A   = 4;      // 드라이버 B-1A (방향, 보통 핀)
+const uint8_t PIN_MOTOR_B1B   = 5;      // 드라이버 B-1B (세기, PWM 핀)
+const uint8_t PIN_MOTOR_A1A   = 6;      // 드라이버 A-1A (세기, PWM 핀)
+const uint8_t PIN_MOTOR_A1B   = 7;      // 드라이버 A-1B (방향, 보통 핀)
+// 전진 명령에 바퀴가 뒤로 돌면 그 모터의 값을 true 로 바꾼다 (모터 선 두 가닥을 바꿔 꽂아도 같다)
+const bool MOTOR_A_INVERT = false;
+const bool MOTOR_B_INVERT = false;
 const uint8_t PIN_RC          = 2;      // 쓰지 않으면 USE_RC 를 0 으로
 const uint8_t PIN_BUZZER      = 13;     // 이 차의 부저는 D13 (나노의 L LED 와 같은 핀)
 
@@ -215,6 +222,23 @@ void beepSet(bool on) {
 }
 
 // ---------------------------------------------------------------- 출력
+// L9110 한 채널. pwmPin 에 세기, dirPin 에 방향.
+//   정지          dirPin LOW,  pwmPin 0
+//   한쪽 (fwd)    dirPin LOW,  pwmPin pwm        -> 차이가 pwm
+//   반대쪽        dirPin HIGH, pwmPin 255 - pwm  -> 차이가 pwm (반대 방향)
+void driveChannel(uint8_t pwmPin, uint8_t dirPin, int pwm, bool fwd) {
+  if (pwm == 0) {
+    digitalWrite(dirPin, LOW);
+    analogWrite(pwmPin, 0);
+  } else if (fwd) {
+    digitalWrite(dirPin, LOW);
+    analogWrite(pwmPin, pwm);
+  } else {
+    digitalWrite(dirPin, HIGH);
+    analogWrite(pwmPin, 255 - pwm);
+  }
+}
+
 void applyOutputs(int speedMMS, float steerDeg) {
   steerServo.write(constrain(STEER_CENTER_DEG + STEER_GAIN * steerDeg, 0, 180));
 
@@ -222,16 +246,10 @@ void applyOutputs(int speedMMS, float steerDeg) {
   int pwm = (int)((long)abs(speedMMS) * 255 / MAX_SPEED_MMS);
   pwm = constrain(pwm, 0, 255);
   if (pwm < MOTOR_MIN_PWM) pwm = 0;        // 너무 느리면 안 돌고 소리만 나므로 끈다
-  if (pwm == 0) {                          // 정지
-    analogWrite(PIN_MOTOR_A1A, 0);
-    analogWrite(PIN_MOTOR_A1B, 0);
-  } else if (speedMMS > 0) {               // 전진
-    analogWrite(PIN_MOTOR_A1A, pwm);
-    analogWrite(PIN_MOTOR_A1B, 0);
-  } else {                                 // 후진
-    analogWrite(PIN_MOTOR_A1A, 0);
-    analogWrite(PIN_MOTOR_A1B, pwm);
-  }
+  bool fwd = speedMMS > 0;
+  // A 는 A-1A 에 세기를 줄 때 전진. B 는 세기 핀이 반대편(B-1B)이라 방향을 뒤집어 넣는다.
+  driveChannel(PIN_MOTOR_A1A, PIN_MOTOR_A1B, pwm, fwd != MOTOR_A_INVERT);
+  driveChannel(PIN_MOTOR_B1B, PIN_MOTOR_B1A, pwm, fwd == MOTOR_B_INVERT);
 }
 
 // ---------------------------------------------------------------- 시작
@@ -244,6 +262,8 @@ void setup() {
   steerServo.attach(PIN_STEER_SERVO);
   pinMode(PIN_MOTOR_A1A, OUTPUT);
   pinMode(PIN_MOTOR_A1B, OUTPUT);
+  pinMode(PIN_MOTOR_B1A, OUTPUT);
+  pinMode(PIN_MOTOR_B1B, OUTPUT);
   applyOutputs(0, 0);                       // 모터 정지 상태로 시작
   sweepServo.write(SWEEP_CENTER_DEG);
   if (USE_RC) pinMode(PIN_RC, INPUT);
