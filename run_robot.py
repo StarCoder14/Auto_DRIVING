@@ -2,9 +2,9 @@
 """
 run_robot.py -- 실제 차를 움직이는 진입점 (오렌지파이에서 실행)
 
-  python run_robot.py --port /dev/ttyUSB0 --goal 4 0     # 앞으로 4 m
-  python run_robot.py --fake --seed 2005                 # 부품 없이 시험
-  python run_robot.py --port /dev/ttyUSB0 --goal 3 2 --max-speed 0.6
+  python run_robot.py --port /dev/ttyUSB0 --goal 1 0     # 앞으로 1 m
+  python run_robot.py --fake --seed 3                    # 부품 없이 1.5 m 시험장 3 번 지도로 시험
+  python run_robot.py --port /dev/ttyUSB0 --goal 1.2 0.3 --max-speed 0.4
 
 목적지는 '출발할 때의 차 기준' 좌표다. x 는 차가 향한 방향, y 는 왼쪽이다.
 차는 자기 위치를 자이로와 명령 속도로 짐작한다. 엔코더가 없으므로 오래 달릴수록 어긋난다.
@@ -54,10 +54,12 @@ def main():
     ap = argparse.ArgumentParser(description="실제 RC카 주행")
     ap.add_argument("--port", default=None, help="아두이노 포트. 예 /dev/ttyUSB0, COM3")
     ap.add_argument("--fake", action="store_true", help="부품 없이 가짜 아두이노로 시험")
-    ap.add_argument("--seed", type=int, default=2005, help="--fake 일 때 쓸 지도 번호")
+    ap.add_argument("--seed", type=int, default=0, help="--fake 일 때 쓸 지도 번호")
+    ap.add_argument("--map", default="arena",
+                    help="--fake 일 때 지도 종류. arena(1.5 m 시험장, 기본) 또는 random(5~10 m 방, 예전 큰 차용)")
     ap.add_argument("--goal", type=float, nargs=2, default=None,
                     metavar=("X", "Y"), help="출발 기준 목적지 (m)")
-    ap.add_argument("--max-speed", type=float, default=0.8, help="최고 속도 (m/s)")
+    ap.add_argument("--max-speed", type=float, default=0.5, help="최고 속도 (m/s). 가상 시험장 30 개를 0.5 로 확인함")
     ap.add_argument("--max-time", type=float, default=90.0)
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--log", default=None, help="주행 기록 CSV 경로. 안 주면 logs/ 에 시각으로 이름을 지음")
@@ -67,20 +69,18 @@ def main():
     args = ap.parse_args()
 
     from rccar import car_specs
-    from rccar.hybrid import HybridParams
-    from rccar.robot import Robot, RobotConfig
+    from rccar.robot import Robot
     has_rear = car_specs.has_rear_sensor()
-    cfg = RobotConfig(max_speed=args.max_speed, max_time=args.max_time, has_rear_sensor=has_rear,
-                      min_speed=car_specs.min_drive_speed_mps())
-    # 뒤를 못 보면 후진 경로도 만들지 않음
-    hp = HybridParams(allow_reverse=has_rear)
+    # 22 cm 차, 1.5 m 시험장에 맞춘 설정. 뒤를 못 보면 후진 경로도 만들지 않음 (car_specs 안에서 처리)
+    settings = car_specs.small_car_settings(max_speed=args.max_speed, max_time=args.max_time)
+    cfg = settings["cfg"]
     # 실제 차를 움직이는 프로그램이라 늘 잰 값을 씀. 가짜 아두이노도 같은 차로 흉내 내야 시험이 의미 있음
     veh = car_specs.vehicle_params()
 
     if args.fake:
         from rccar import scenarios as S
         from rccar.fake_arduino import FakeArduino
-        world, start, goal = S.make("random", args.seed)
+        world, start, goal = S.make(args.map, args.seed)
         link = FakeArduino(world, start, veh=veh, rng=np.random.default_rng(args.seed),
                            has_rear=has_rear, front_spec=car_specs.FRONT_SENSOR,
                            motor_min_speed=car_specs.min_drive_speed_mps())
@@ -99,7 +99,7 @@ def main():
         link = SerialLink(args.port)
         goal_local = np.array(args.goal, float)
 
-    rb = Robot(link, goal_local, veh=veh, cfg=cfg, hp=hp)
+    rb = Robot(link, goal_local, veh=veh, **settings)
     log_path = None
     if not args.no_log:
         log_path = args.log

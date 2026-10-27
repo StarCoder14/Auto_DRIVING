@@ -208,7 +208,33 @@ def random_pillars(seed=0):
     raise RuntimeError(f"seed {seed}: 풀 수 있는 지도를 만들지 못했다")
 
 
+def arena(seed=0):
+    """
+    우리 시험장 크기 (car_specs 의 시험 공간, 안 쟀으면 계획서의 1.5 m) 에 기둥 3~6개를 무작위로 놓음.
+    출발은 왼쪽, 목표는 오른쪽. 벽은 없음. 원래 run_error_split.py 안에 있던 것을 주행 시험도 쓰게 옮김.
+    """
+    from . import car_specs
+    rng = np.random.default_rng(50_000 + seed)
+    width, length = car_specs.arena_m()
+    radius = car_specs.pillar_radius_m()
+    start = np.array([0.15 * width, rng.uniform(0.3, 0.7) * length, 0.0])
+    goal = np.array([0.85 * width, rng.uniform(0.3, 0.7) * length])
+    count = int(rng.integers(3, 7))
+    circles = []
+    while len(circles) < count:
+        center = rng.uniform([0.3 * width, 0.1 * length], [0.7 * width, 0.9 * length])
+        if any(np.hypot(*(center - np.asarray(other))) < 2 * radius + 0.05 for other, _ in circles):
+            continue
+        # 범퍼 바로 앞에 기둥이 있으면 후진 없이는 못 피함 (예전 2, 10, 11, 18 번 지도: 범퍼에서 1~8 cm).
+        # 그래서 출발할 때 범퍼에서 차 길이 하나 안에는 안 놓음. 실제 시험장에 놓을 때도 같은 규칙을 씀
+        if np.hypot(*(center - start[:2])) - radius < car_specs.START_CLEAR_M:
+            continue
+        circles.append((tuple(center), radius))
+    return World(circles=circles, bounds=BOUNDS), start, goal
+
+
 ALL = {
+    "arena": arena,
     "pillars": pillars,
     "walls": walls,
     "trap": trap,

@@ -115,6 +115,9 @@ Servo sweepServo, steerServo;
 
 int   sweepDeg = 0;
 int   sweepDir = SWEEP_STEP_DEG;
+// frontMM 을 잰 방향. 재자마자 서보를 다음 방향으로 돌리므로 sweepDeg 와 따로 둬야 함.
+// 예전엔 sweepDeg 를 보내서 거리가 15 도 옆 방향에 찍혔음. 999 는 '아직 한 번도 안 잼' 표시 (link.py 와 같음)
+int   measuredDeg = 999;
 unsigned long sweepMovedAt = 0;
 bool  sweepSettled = false;
 
@@ -216,7 +219,7 @@ void readSerial() {
 void sendStatus(int appliedMMS, uint8_t flags) {
   char body[64];
   int n = snprintf(body, sizeof(body), "S,%lu,%d,%d,%d,%d,%d,%u",
-                   millis(), (int)(gyroDps * 100.0), (int)(sweepDeg * 10),
+                   millis(), (int)(gyroDps * 100.0), measuredDeg * 10,
                    frontMM, rearMM, appliedMMS, flags);
   Serial.print(body);
   Serial.print('*');
@@ -299,6 +302,7 @@ void loop() {
   if (!sweepSettled && now - sweepMovedAt >= SWEEP_SETTLE_MS) sweepSettled = true;
   if (sweepSettled) {
     frontMM = readSharp();                   // 샤프는 늘 바로 값을 준다 (ToF 처럼 '준비중'이 없다)
+    measuredDeg = sweepDeg;
     {
       sweepDeg += sweepDir;                  // 다음 방향으로
       if (sweepDeg > SWEEP_MAX_DEG) { sweepDeg = SWEEP_MAX_DEG - SWEEP_STEP_DEG; sweepDir = -SWEEP_STEP_DEG; }

@@ -45,6 +45,10 @@ MEASURED = {
 PLANNED_ARENA_CM = 150.0
 PLANNED_PILLAR_DIAMETER_CM = 8.0
 
+# 출발할 때 뒷바퀴 축에서 이 거리 안에는 기둥을 두지 않음 (m). 앞끝 18 cm + 차 길이 22 cm.
+# 후진을 안 하므로 이보다 가까우면 꺾어서 피할 거리가 모자람
+START_CLEAR_M = 0.40
+
 # 앞 거리 센서 (샤프 적외선 GP2Y0A21). 펌웨어의 SHARP_MIN_MM, SHARP_MAX_MM 과 같은 값이어야 함
 FRONT_SENSOR = {
     "min_range_m": 0.10,     # 이보다 가까우면 펌웨어가 '못 맞힘'으로 보냄
@@ -56,6 +60,33 @@ FRONT_SENSOR = {
 # 펌웨어의 속도 -> 모터 힘 변환. rccar_arduino.ino 의 MAX_SPEED_MMS, MOTOR_MIN_PWM 과 같아야 함
 FIRMWARE_MAX_SPEED_MPS = 1.4     # 이 속도를 보내면 모터 힘 255 (끝까지)
 FIRMWARE_MOTOR_MIN_PWM = 60      # 힘이 이보다 약하면 펌웨어가 모터를 끔
+
+
+def small_car_settings(max_speed=0.5, max_time=90.0):
+    """우리 차(22 cm)와 시험장(1.5 m)에 맞춘 주행 설정. Robot(link, goal, veh=..., **이것) 으로 넘김.
+
+    원래 값은 48 cm 차, 5~10 m 방 기준이었음. 그대로 쓰면 목적지 반경 45 cm 안에만 들어와도
+    도착으로 쳐서 시험장 1.5 m 에서 43 cm 앞에 서 버렸고, 한 걸음 40 cm 로 길을 짜서
+    기둥 사이를 못 빠져나갔음 (가상 시험장 10 개 중 갇힘 2, 기둥에 닿음 2).
+    """
+    from .controller import ControllerParams
+    from .hybrid import HybridParams
+    from .hybrid_sim import HybridConfig
+    from .robot import RobotConfig
+    goal_tol = 0.08
+    return {
+        # 지도는 출발점 기준 사방 3 m 면 시험장이 다 들어감. 칸을 4 cm 로 줄여 기둥(지름 8 cm)이 2 칸은 되게 함
+        "cfg": RobotConfig(bounds=(-3.0, -3.0, 3.0, 3.0), grid_res=0.04, goal_tol=goal_tol,
+                           max_speed=max_speed, max_time=max_time,
+                           has_rear_sensor=has_rear_sensor(), min_speed=min_drive_speed_mps(),
+                           stop_slack=0.05),
+        "hp": HybridParams(xy_res=0.10, step=0.16, samples=4, hard_margin=0.05,
+                           soft_margin=0.15, switch_cost=0.7, shot_max_len=3.0,
+                           goal_tol=0.06, allow_reverse=has_rear_sensor()),
+        "hc": HybridConfig(deviate_dist=0.15, check_ahead=1.5, blocked_slack=0.02,
+                           field_cap=0.5, stuck_radius=0.2, touch_margin=0.01),
+        "ctrl": ControllerParams(ld_min=0.25, ld_max=0.50, goal_tol=goal_tol),
+    }
 
 
 def min_drive_speed_mps():

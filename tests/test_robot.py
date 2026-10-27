@@ -172,8 +172,9 @@ def test_no_rear_sensor_never_reverses() -> None:
         rb, sent = _fake_drive(seed, has_rear=False)
         assert min(sent) >= 0.0, f"지도 {seed}: 뒤를 못 보는데 후진 명령 {min(sent):.2f} m/s"
         assert rb.arrived or rb.stuck, f"지도 {seed}: 도착도 갇힘도 아닌 채 끝남 ({rb.end_reason})"
-    rb, _ = _fake_drive(4023, has_rear=False)
-    assert rb.stuck, "지도 4023 은 뒤 센서 없이 갇혀야 함 (갇힘 판정이 안 켜짐)"
+    # 예전엔 4023 번이 갇혔는데, 지도 칠하는 버그를 고친 뒤 (2026-10-27) 빠져나가서 4000 번으로 바꿈
+    rb, _ = _fake_drive(4000, has_rear=False)
+    assert rb.stuck, "지도 4000 은 뒤 센서 없이 갇혀야 함 (갇힘 판정이 안 켜짐)"
 
 
 def test_drive_log_written() -> None:
@@ -227,3 +228,13 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def test_small_car_arena() -> None:
+    """22 cm 차 설정으로 1.5 m 시험장 지도 0~9 번을 다 도착하고, 기둥에 안 닿아야 함."""
+    from run_arena_check import drive_one
+    for seed in range(10):
+        robot, closest, miss = drive_one(seed, 0.5)
+        assert robot.arrived, f"시험장 {seed}: 도착 못 함 ({robot.end_reason})"
+        assert closest > 0.0, f"시험장 {seed}: 기둥에 {-closest * 100:.1f} cm 닿음"
+        assert miss < 0.12, f"시험장 {seed}: 목적지에서 {miss * 100:.1f} cm 떨어져 섬"
