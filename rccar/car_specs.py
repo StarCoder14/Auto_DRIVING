@@ -45,6 +45,24 @@ MEASURED = {
 PLANNED_ARENA_CM = 150.0
 PLANNED_PILLAR_DIAMETER_CM = 8.0
 
+# 앞 거리 센서 (샤프 적외선 GP2Y0A21). 펌웨어의 SHARP_MIN_MM, SHARP_MAX_MM 과 같은 값이어야 함
+FRONT_SENSOR = {
+    "min_range_m": 0.10,     # 이보다 가까우면 펌웨어가 '못 맞힘'으로 보냄
+    "max_range_m": 0.80,     # 이보다 멀면 펌웨어가 '못 맞힘'으로 보냄
+    # 빛이 퍼지는 폭. 아직 안 잼. 레이저(27도)보다 훨씬 좁다고 알려져 있어 10도로 짐작함
+    "cone_deg": 10.0,
+}
+
+# 펌웨어의 속도 -> 모터 힘 변환. rccar_arduino.ino 의 MAX_SPEED_MMS, MOTOR_MIN_PWM 과 같아야 함
+FIRMWARE_MAX_SPEED_MPS = 1.4     # 이 속도를 보내면 모터 힘 255 (끝까지)
+FIRMWARE_MOTOR_MIN_PWM = 60      # 힘이 이보다 약하면 펌웨어가 모터를 끔
+
+
+def min_drive_speed_mps():
+    """이보다 느린 명령은 펌웨어가 모터를 꺼 버림. 그래서 주행 코드는 이보다 느리게 보내지 않음."""
+    # 255 로 나눴다 다시 곱하면서 버림이 생겨 경계에서 꺼질 수 있음. 1 을 더해 확실히 넘김
+    return (FIRMWARE_MOTOR_MIN_PWM + 1) / 255.0 * FIRMWARE_MAX_SPEED_MPS
+
 
 def _meters(name):
     value = MEASURED[name]

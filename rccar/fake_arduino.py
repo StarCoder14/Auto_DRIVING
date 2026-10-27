@@ -36,7 +36,8 @@ class FakeArduino:
                  send_hz=50.0, latency_s=0.02, watchdog_ms=300,
                  gyro_bias_dps=0.2, gyro_noise_dps=0.3,
                  sweep_deg=(-90, 90), sweep_step=15, settle_s=0.090,
-                 servo_rate_dps=300.0, servo_jitter_deg=1.5, has_rear=True):
+                 servo_rate_dps=300.0, servo_jitter_deg=1.5, has_rear=True,
+                 front_spec=None, motor_min_speed=0.0):
         self.V = veh or VehicleParams()
         self.rng = rng or np.random.default_rng(0)
         self.world = world
@@ -51,9 +52,17 @@ class FakeArduino:
         fx = self.V.front_sensor_x_m
         rx = self.V.rear_sensor_x_m
         cone = math.radians(27)
-        self.front = RangeSensorArray("front", [[fx, 0.0]], [0.0], 3.0,
-                                      cone=cone, subrays=9, noise_abs=0.02,
+        # front_spec 을 안 주면 예전 레이저(3 m, 27도). 실물 흉내는 car_specs.FRONT_SENSOR 를 줌
+        front_range, front_cone, self.front_min = 3.0, cone, 0.0
+        if front_spec is not None:
+            front_range = front_spec["max_range_m"]
+            front_cone = math.radians(front_spec["cone_deg"])
+            self.front_min = front_spec["min_range_m"]
+        self.front = RangeSensorArray("front", [[fx, 0.0]], [0.0], front_range,
+                                      cone=front_cone, subrays=9, noise_abs=0.02,
                                       noise_rel=0.01, rng=self.rng)
+        # 펌웨어는 이보다 느린 명령이면 모터를 끔 (MOTOR_MIN_PWM)
+        self.motor_min_speed = motor_min_speed
         self.rear = RangeSensorArray("rear", [[rx, 0.0]], [math.pi], 3.0,
                                      cone=cone, subrays=9, noise_abs=0.02,
                                      noise_rel=0.01, rng=self.rng)
@@ -108,6 +117,8 @@ class FakeArduino:
         for _ in range(n):
             late = (self.t - self._last_cmd_t) > self.watchdog
             v, s = (0.0, 0.0) if (late or self.manual) else self._cmd
+            if abs(v) < self.motor_min_speed:
+                v = 0.0
             self.vehicle.step(v, s, self.dt)
             self.t += self.dt
 
@@ -124,6 +135,8 @@ class FakeArduino:
                 self.front.angles[0] = true_a
                 m = self.front.measure(self.world, self.vehicle.pose)
                 self._front_m = float(m.ranges[0])
+                if self._front_m < self.front_min:       # 펌웨어처럼 너무 가까우면 '못 맞힘'
+                    self._front_m = math.inf
                 self._front_a = self.servo_target        # 펌웨어가 아는 각도(명령값)
                 # 잴 때의 각도 오차. 이 값이 크면 장애물이 엉뚱한 방향에 찍힌다
                 self.sweep_err.append(true_a - self._front_a)

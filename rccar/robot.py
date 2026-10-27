@@ -30,6 +30,7 @@ import time
 
 import numpy as np
 
+from . import car_specs
 from . import geometry as G
 from .grid import OccupancyGrid
 from .hybrid import HybridAStar, HybridParams, distance_field
@@ -42,7 +43,8 @@ from .vehicle import VehicleParams
 class RobotConfig:
     def __init__(self, bounds=(-12.0, -12.0, 12.0, 12.0), grid_res=0.12,
                  control_hz=50.0, plan_hz=10.0, goal_tol=0.45,
-                 max_speed=1.0, rev_speed=0.25, max_time=120.0, has_rear_sensor=True):
+                 max_speed=1.0, rev_speed=0.25, max_time=120.0, has_rear_sensor=True,
+                 min_speed=0.0):
         self.bounds = bounds          # 지도 범위. 출발점이 (0, 0) 이다
         self.grid_res = grid_res
         self.control_hz = control_hz
@@ -53,6 +55,8 @@ class RobotConfig:
         self.max_time = max_time
         # 뒤 센서가 없으면 뒤를 모르므로 후진 탈출을 하지 않음. 갇히면 멈추고 사람이 꺼냄
         self.has_rear_sensor = has_rear_sensor
+        # 이보다 느리게 가라고 하면 실제 모터는 안 돎. 실물은 car_specs.min_drive_speed_mps() 를 넣음
+        self.min_speed = min_speed
 
 
 class Robot:
@@ -79,12 +83,16 @@ class Robot:
         self.arrived = False
         self.manual = False
 
-        # 센서 장착 위치와 원뿔. sensors.make_sensor 의 tof_sweep_rear 과 같은 값
+        # 센서 장착 위치와 원뿔
         fx = self.V.front_sensor_x_m
         rx = self.V.rear_sensor_x_m
         cone = math.radians(27)
-        self.front = RangeSensorArray("front", [[fx, 0.0]], [0.0], 3.0,
-                                      cone=cone, subrays=9, map_arc=True)
+        # 앞은 샤프라서 80 cm 까지만 믿음. 예전엔 3 m 레이저로 알고 있어서, '못 맞힘'이 오면
+        # 3 m 앞까지 비었다고 칠해 1 m 앞에 본 기둥을 지워 버렸음
+        front_spec = car_specs.FRONT_SENSOR
+        self.front = RangeSensorArray("front", [[fx, 0.0]], [0.0], front_spec["max_range_m"],
+                                      cone=math.radians(front_spec["cone_deg"]), subrays=9,
+                                      map_arc=True)
         self.rear = RangeSensorArray("rear", [[rx, 0.0]], [math.pi], 3.0,
                                      cone=cone, subrays=9, map_arc=True)
 
@@ -247,6 +255,11 @@ class Robot:
             - self.planner.fp.radius
         v, s, _ = f.compute(self.pose, self.speed, self.goal, clear)
         v = float(np.clip(v, -self.C.rev_speed, self.C.max_speed))
+        # 너무 느린 명령은 펌웨어가 모터를 꺼 버려 차는 서는데, 이쪽은 가고 있다고 믿게 됨.
+        # 그래서 가라고 할 땐 최소 속도 이상으로 올림. 아래 예측 정지가 올린 속도로 다시 검사함
+        v_min = self.C.min_speed
+        if 1e-3 < abs(v) < v_min:
+            v = math.copysign(v_min, v)
 
         # 예측 정지: 이 명령대로 제동 거리만큼 가면 차체가 닿는가
         sgn = np.sign(v) if abs(v) > 1e-3 else np.sign(self.speed)

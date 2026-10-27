@@ -70,7 +70,8 @@ def main():
     from rccar.hybrid import HybridParams
     from rccar.robot import Robot, RobotConfig
     has_rear = car_specs.has_rear_sensor()
-    cfg = RobotConfig(max_speed=args.max_speed, max_time=args.max_time, has_rear_sensor=has_rear)
+    cfg = RobotConfig(max_speed=args.max_speed, max_time=args.max_time, has_rear_sensor=has_rear,
+                      min_speed=car_specs.min_drive_speed_mps())
     # 뒤를 못 보면 후진 경로도 만들지 않음
     hp = HybridParams(allow_reverse=has_rear)
     # 실제 차를 움직이는 프로그램이라 늘 잰 값을 씀. 가짜 아두이노도 같은 차로 흉내 내야 시험이 의미 있음
@@ -81,7 +82,8 @@ def main():
         from rccar.fake_arduino import FakeArduino
         world, start, goal = S.make("random", args.seed)
         link = FakeArduino(world, start, veh=veh, rng=np.random.default_rng(args.seed),
-                           has_rear=has_rear)
+                           has_rear=has_rear, front_spec=car_specs.FRONT_SENSOR,
+                           motor_min_speed=car_specs.min_drive_speed_mps())
         if args.goal is None:                      # 지도의 목적지를 차 기준으로 바꾼다
             d = goal - start[:2]
             c, s = np.cos(-start[2]), np.sin(-start[2])
