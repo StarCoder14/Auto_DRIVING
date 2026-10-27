@@ -115,7 +115,11 @@ class Robot:
         self._sweep_min = math.inf
         self._sweep_max = -math.inf
         self._last_sweep_rad = None
+        # 서보 끝 각도보다 5 도 안쪽까지 봤으면 다 본 것으로 침. 서보가 끝까지 안 가고 조금 덜 돌아도 되게
+        self._ready_deg = front_spec["sweep_deg"] - 5.0
         self.ready = False
+        # 자이로가 한 번이라도 대답을 안 했으면 방향을 믿을 수 없어 출발하지 않음
+        self.gyro_error = False
         # 뒤 센서가 방금 잰 거리 (탈출할 때 지도 대신 이것을 믿는다)
         self.rear_m = math.inf
         self._rear_t = -1e9
@@ -138,6 +142,10 @@ class Robot:
         if not (0.0 < dt < 0.5):           # 시계가 튀면 버린다
             return
         self.manual = s.manual
+        if s.gyro_error and not self.gyro_error:
+            print("자이로가 대답을 안 한 적 있음. 방향을 믿을 수 없어 출발하지 않음. 자이로 선 확인 후 아두이노 리셋",
+                  flush=True)
+        self.gyro_error = s.gyro_error
         self.speed = s.speed_mps
         self.last_status = s
 
@@ -171,7 +179,7 @@ class Robot:
             a = math.degrees(s.sweep_rad)
             self._sweep_min = min(self._sweep_min, a)
             self._sweep_max = max(self._sweep_max, a)
-            if self._sweep_min <= -70.0 and self._sweep_max >= 70.0:
+            if self._sweep_min <= -self._ready_deg and self._sweep_max >= self._ready_deg:
                 self.ready = True
                 self._force_replan = True
 
@@ -211,7 +219,9 @@ class Robot:
         """10 Hz. 거리장을 새로 만들고 필요하면 다시 계획한다."""
         # 리모컨 출발을 기다리는 동안은 길을 찾지 않음. 자동 시작은 목적지를 99 m 로 두고 기다리는데,
         # 지도 밖 목적지로 길을 찾느라 한 번에 몇 초씩 걸려 프로그램 전체가 느려졌음. 지도는 계속 쌓임
-        if self.manual:
+        # 아두이노가 아직 아무 말도 안 했을 때(켜지는 중, 얼어붙음)도 manual 을 모르니 안 찾음.
+        # 2026-10-28 아두이노가 얼었을 때 이게 없어서 보드가 96% 힘으로 99 m 길을 찾고 있었음
+        if self.manual or not self.ready or self.gyro_error:
             return
         self.D = distance_field(self.grid.occupied_mask(), self.grid.res,
                                 self.HC.field_cap)
@@ -262,7 +272,7 @@ class Robot:
     # ------------------------------------------------------------ 추종
     def control_cycle(self):
         """50 Hz. 속도와 조향을 정해 아두이노로 보낸다."""
-        if self.arrived or self.manual or not self.ready or self.D is None:
+        if self.arrived or self.manual or not self.ready or self.D is None or self.gyro_error:
             self._send(0.0, 0.0)
             return
         if self._escape is not None:
@@ -433,6 +443,8 @@ class Robot:
             self._log = None
 
     def _mode(self):
+        if self.gyro_error:
+            return "gyro_error"
         if self.manual:
             return "manual"
         if self.stuck:

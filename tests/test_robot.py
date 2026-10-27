@@ -60,6 +60,50 @@ def test_no_signal_means_no_range() -> None:
     assert math.isinf(st.front_m) and math.isinf(st.rear_m)
 
 
+class _ScriptedLink:
+    """정해 둔 상태 줄만 내보내는 가짜 통신. 보낸 명령은 모아 둠."""
+
+    def __init__(self, lines):
+        self.lines = list(lines)
+        self.sent = []
+
+    def poll(self):
+        out = [parse_status(line) for line in self.lines]
+        self.lines = []
+        return out
+
+    def send(self, speed, steer):
+        self.sent.append((speed, steer))
+
+
+def test_silent_arduino_no_planning() -> None:
+    """아두이노가 아무 말도 안 하면 길을 찾지 않는다. 2026-10-28 실물에서 얼어붙은 아두이노 때문에
+    보드가 99 m 길을 찾느라 힘을 다 썼음."""
+    rb = Robot(_ScriptedLink([]), np.array([99.0, 0.0]), cfg=RobotConfig(bounds=(-3, -3, 3, 3), grid_res=0.04))
+    for _ in range(20):
+        rb.step(0.02)
+        rb.plan_cycle()
+        rb.control_cycle()
+    assert rb.stats["plans"] == 0, f"아무 말도 없는데 길을 {rb.stats['plans']} 번 찾았다"
+    assert all(v == 0.0 for v, _ in rb.link.sent), "아무 말도 없는데 움직이라고 했다"
+
+
+def test_gyro_error_blocks_start() -> None:
+    """자이로 이상(16) 표시가 오면 센서를 다 훑었어도 출발하지 않는다."""
+    gyro_bad = 16 | FLAG_FRONT_OK
+    lines = [_status_line(ms=1000 + 20 * i, sweep=sweep * 10, front=-1, flags=gyro_bad, cmd=0, gyro=0)
+             for i, sweep in enumerate([0, -75, -60, 60, 75, 60])]
+    st = parse_status(lines[0])
+    assert st.gyro_error, "16 플래그를 자이로 이상으로 못 읽었다"
+    rb = Robot(_ScriptedLink(lines), np.array([1.0, 0.0]), cfg=RobotConfig(bounds=(-3, -3, 3, 3), grid_res=0.04))
+    rb.step(0.02)
+    assert rb.ready, "센서는 다 훑었는데 준비가 안 됐다 (75 도 기준 확인)"
+    rb.plan_cycle()
+    rb.control_cycle()
+    assert rb.stats["plans"] == 0 and rb.link.sent[-1][0] == 0.0, "자이로 이상인데 출발하려 했다"
+    assert rb._mode() == "gyro_error"
+
+
 def test_fake_hardware_drive() -> None:
     """가짜 아두이노로 무작위 지도를 실제로 주행한다."""
     world, start, goal = S.make("random", 2005)
@@ -217,6 +261,8 @@ TESTS = [
     ("부저 명령 형식", test_buzzer_command_round_trip),
     ("카운트다운 삑삑, 차는 멈춤", test_countdown_beeps_without_moving),
     ("22 cm 차, 1.5 m 시험장 10 개", test_small_car_arena),
+    ("아두이노가 조용하면 길 안 찾음", test_silent_arduino_no_planning),
+    ("자이로 이상이면 출발 안 함", test_gyro_error_blocks_start),
 ]
 
 

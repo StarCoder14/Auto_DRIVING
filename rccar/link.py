@@ -14,7 +14,12 @@ link.py -- 오렌지파이와 아두이노 사이의 통신
     앞거리   앞 ToF 거리 (mm). 못 맞히면 -1
     뒷거리   뒤 ToF 거리 (mm). 못 맞히면 -1
     실제명령 아두이노가 실제로 모터에 준 속도 (mm/s). 비상 정지가 걸리면 0 이 된다
-    플래그   1 앞거리 유효, 2 뒷거리 유효, 4 사람이 조종기로 뺏음, 8 감시 정지
+    플래그   1 앞거리 유효, 2 뒷거리 유효, 4 사람이 조종기로 뺏음, 8 감시 정지,
+             16 자이로가 대답을 안 한 적 있음 (켠 뒤 한 번이라도. 아두이노를 리셋해야 풀림)
+
+  아두이노 -> 파이   G,<cm>*<검사값>     리모컨 ▶|| 로 출발. 지금 차가 보는 방향으로 그 거리가 목적지
+  아두이노 -> 파이   I,<방식>,<주소>,<버튼>*<검사값>   리모컨 신호를 들을 때마다 (확인용, 주행엔 안 씀)
+    방식은 IRremote 라이브러리의 번호. 0 은 '해석 못 함'
 
   파이 -> 아두이노   C,<속도>,<조향>*<검사값>
     속도     mm/s. 음수면 후진
@@ -41,6 +46,7 @@ FLAG_FRONT_OK = 1
 FLAG_REAR_OK = 2
 FLAG_MANUAL = 4
 FLAG_WATCHDOG = 8
+FLAG_GYRO_ERROR = 16
 
 
 def _checksum(payload: str) -> int:
@@ -77,6 +83,7 @@ class Status:
     speed_mps: float         # 아두이노가 실제로 모터에 준 속도
     manual: bool             # 사람이 조종기로 가져갔는가
     watchdog: bool           # 명령이 끊겨 스스로 멈췄는가
+    gyro_error: bool = False # 자이로가 대답을 안 한 적 있는가. 그러면 방향을 믿을 수 없음
 
 
 def parse_status(line: str):
@@ -102,6 +109,7 @@ def parse_status(line: str):
             speed_mps=int(cmd) / 1000.0,
             manual=bool(f & FLAG_MANUAL),
             watchdog=bool(f & FLAG_WATCHDOG),
+            gyro_error=bool(f & FLAG_GYRO_ERROR),
         )
     except (ValueError, IndexError):
         return None
@@ -135,6 +143,10 @@ class SerialLink:
                 body, cs = line.split("*", 1)
                 if f"{_checksum(body):02X}" == cs.upper():
                     self.goal_cm = int(body[2:])
+                continue
+            if line.startswith("I,"):
+                # 리모컨이 안 먹을 때 원인 찾기용. car.log 에 찍혀서 노트북에서 볼 수 있음
+                print(f"리모컨 신호 들음 (방식,주소,버튼): {line[2:].split('*')[0]}", flush=True)
                 continue
             st = parse_status(raw.decode("ascii", "ignore"))
             if st is not None:
