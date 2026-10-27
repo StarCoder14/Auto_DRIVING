@@ -231,7 +231,8 @@ void beepSet(bool on) {
 }
 
 // ---------------------------------------------------------------- 출력
-void applyOutputs(int speedMMS, float steerDeg) {
+// 돌려주는 값은 모터에 실제로 준 속도(mm/s). 너무 느려서 모터를 껐으면 0 을 돌려줌
+int applyOutputs(int speedMMS, float steerDeg) {
   steerServo.write(constrain(STEER_CENTER_DEG + STEER_GAIN * steerDeg, 0, 180));
 
   // 속도(mm/s)를 PWM(0~255)으로. 부호가 방향.
@@ -248,6 +249,7 @@ void applyOutputs(int speedMMS, float steerDeg) {
     analogWrite(PIN_MOTOR_A1A, 0); analogWrite(5, 0);
     analogWrite(PIN_MOTOR_A1B, pwm); analogWrite(4, pwm);
   }
+  return pwm == 0 ? 0 : speedMMS;
 }
 
 // ---------------------------------------------------------------- 시작
@@ -336,8 +338,9 @@ void loop() {
   bool late = (millis() - lastCmdAt) > WATCHDOG_MS;
   if (late) flags |= 8;
 
-  int applied = (late || manual) ? 0 : cmdSpeedMMS;
-  applyOutputs(applied, (late || manual) ? 0.0 : cmdSteerDeg);
+  // 예전엔 모터를 꺼 놓고도 명령 속도를 그대로 보고해서, 파이가 서 있는 차를 가고 있다고 믿었음
+  int applied = applyOutputs((late || manual) ? 0 : cmdSpeedMMS,
+                             (late || manual) ? 0.0 : cmdSteerDeg);
 
   // ---- 상태 보고 (50 Hz)
   if (now - lastSendAt >= SEND_PERIOD_MS) {
