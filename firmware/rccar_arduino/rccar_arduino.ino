@@ -110,6 +110,11 @@ const unsigned long SWEEP_SETTLE_MS = 90;
 
 // 센서 서보 보정: 차 정면을 볼 때의 서보 각도
 const float SWEEP_CENTER_DEG = 90.0;
+// 서보가 좌우로 똑같이 안 돎. 같은 75 도를 시켜도 왼쪽(차 뒤에서 앞을 볼 때)이 훨씬 더 가서 보드에 닿았음 (2026-10-28 영상).
+// 시킨 각도에 이 값을 곱해서 서보에 줌. 파이에 보고하는 각도는 곱하기 전 값이라 지도 방향은 그대로임.
+// 아직 좌우가 다르면 많이 가는 쪽 값만 0.05 씩 바꿔 다시 올릴 것
+const float SWEEP_GAIN_LEFT  = 0.8;
+const float SWEEP_GAIN_RIGHT = 1.0;
 
 // ---------------------------------------------------------------- 상태
 Servo sweepServo, steerServo;
@@ -336,7 +341,9 @@ void loop() {
       sweepDeg += sweepDir;                  // 다음 방향으로
       if (sweepDeg > SWEEP_MAX_DEG) { sweepDeg = SWEEP_MAX_DEG - SWEEP_STEP_DEG; sweepDir = -SWEEP_STEP_DEG; }
       if (sweepDeg < SWEEP_MIN_DEG) { sweepDeg = SWEEP_MIN_DEG + SWEEP_STEP_DEG; sweepDir =  SWEEP_STEP_DEG; }
-      sweepServo.write(constrain(SWEEP_CENTER_DEG + sweepDeg, 0, 180));
+      // 왼쪽이 양수 (link.py 와 같음)
+      float gain = sweepDeg > 0 ? SWEEP_GAIN_LEFT : SWEEP_GAIN_RIGHT;
+      sweepServo.write(constrain(SWEEP_CENTER_DEG + gain * sweepDeg, 0, 180));
       sweepMovedAt = now; sweepSettled = false;
     }
   }
