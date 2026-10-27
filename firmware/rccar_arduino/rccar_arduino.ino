@@ -273,6 +273,9 @@ void setup() {
   sharpBegin();
   mpuBegin();                                // 이 동안 차를 가만히 둘 것
   IrReceiver.begin(PIN_IR, DISABLE_LED_FEEDBACK);   // LED 피드백은 D13(부저)이라 끈다
+  // 준비 끝 신호: 삐-삐 두 번. 켤 때 부트로더가 D13 을 깜빡여 나는 잡소리와 구별하려고 넣음.
+  // 이 두 번이 들리면 자이로 영점까지 끝나 리모컨을 받을 수 있다는 뜻임
+  for (uint8_t i = 0; i < 2; i++) { beepSet(true); delay(150); beepSet(false); delay(150); }
   lastCmdAt = millis();
   sweepMovedAt = millis();
 }
@@ -325,7 +328,9 @@ void loop() {
   }
   if (IrReceiver.decode()) {
     uint8_t c = IrReceiver.decodedIRData.command;
-    if (IrReceiver.decodedIRData.protocol != UNKNOWN && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) {
+    // 우리 리모컨은 NEC 방식만 씀. 예전엔 UNKNOWN 만 걸러서, 형광등이나 햇빛 잡음이 다른 방식으로
+    // 잘못 읽히면 숫자로 받아들여 삑 울릴 수 있었음
+    if (IrReceiver.decodedIRData.protocol == NEC && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) {
       int d = -1;
       for (int i = 0; i < 10; i++) if (IR_DIGITS[i] == c) d = i;
       if (!irPaused) { irPaused = true; irBeep(400); }                         // 달리는 중: 아무 버튼이나 정지
