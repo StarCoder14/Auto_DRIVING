@@ -19,6 +19,7 @@
     조향 서보     D10
     DC 모터 2개, 드라이버 L9110S : B-1A D4, B-1B D5, A-1A D6, A-1B D7
                                  (VCC 는 모터 배터리, GND 공통)
+    적외선 리모컨 수신기 D2   OUT 선. VCC 5V, GND
     RC 수신기     D2      사람이 조종기로 뺏을 때 (선택)
 
   센서 서보 고를 때
@@ -38,12 +39,17 @@
 
 #include <Wire.h>
 #include <Servo.h>
-#include <IRremote.hpp>
+#include <IRremote.hpp>                // arduino-cli lib install IRremote (4.x)
+
+// ---- 적외선 리모컨 (Car mp3 21키 리모컨, NEC)
+//   숫자: 갈 거리(cm) 입력.  ▶|| (0x43): 출발.  EQ (0x09): 숫자 지우기.  달리는 중 아무 버튼: 정지.
+//   켜면 멈춘 상태(irPaused). 멈춘 동안은 '사람 조종' 플래그(4)를 올려 파이가 기다리게 한다.
+//   출발할 때 숫자가 있으면 G,<cm> 줄을 파이에 보낸다. 파이는 그 순간 차가 보는 방향으로 그 거리를 목적지로 잡는다.
 const uint8_t PIN_IR = 2;
 bool irPaused = true;
 bool irHasGoal = false;
 int irNum = 0;
-const uint8_t IR_DIGITS[10] = {0x16,0x0C,0x18,0x5E,0x08,0x1C,0x5A,0x42,0x52,0x4A};
+const uint8_t IR_DIGITS[10] = {0x16,0x0C,0x18,0x5E,0x08,0x1C,0x5A,0x42,0x52,0x4A};   // 0~9
 
 // ---------------------------------------------------------------- 설정
 // 앞 거리 센서는 샤프 적외선 GP2Y0A21YK0F (아날로그, 10~80 cm). 신호선을 A0 에 꽂는다.
@@ -51,16 +57,13 @@ const uint8_t IR_DIGITS[10] = {0x16,0x0C,0x18,0x5E,0x08,0x1C,0x5A,0x42,0x52,0x4A
 const uint8_t PIN_SHARP_FRONT = A0;
 const uint8_t PIN_SWEEP_SERVO = 9;
 const uint8_t PIN_STEER_SERVO = 10;
-// 구동 모터는 DC 모터 2개 + L9110S 드라이버. A, B 두 채널을 같은 속도로 돌린다.
-// L9110: 두 입력의 차이로 돈다. 둘 다 LOW 면 정지.
-// 나노에서 PWM 이 되는 핀은 3 5 6 9 10 11 뿐이라, 채널마다 PWM 핀 하나(세기) + 보통 핀 하나(방향)로 쓴다.
-const uint8_t PIN_MOTOR_B1A   = 4;      // 드라이버 B-1A (방향, 보통 핀)
-const uint8_t PIN_MOTOR_B1B   = 5;      // 드라이버 B-1B (세기, PWM 핀)
-const uint8_t PIN_MOTOR_A1A   = 6;      // 드라이버 A-1A (세기, PWM 핀)
-const uint8_t PIN_MOTOR_A1B   = 7;      // 드라이버 A-1B (방향, 보통 핀)
-// 전진 명령에 바퀴가 뒤로 돌면 그 모터의 값을 true 로 바꾼다 (모터 선 두 가닥을 바꿔 꽂아도 같다)
-const bool MOTOR_A_INVERT = false;
-const bool MOTOR_B_INVERT = false;
+// 구동 모터는 DC 모터 2개 + L9110S 드라이버 (A, B 채널). 두 모터는 늘 같은 명령을 받는다.
+// L9110: 두 입력의 차이로 돈다. 둘 다 LOW 면 정지. 입력이 떠 있으면 HIGH 로 읽혀 모터가 돈다
+//   (2026-10-26 실제로 겪음: 모터 2개 배선인데 펌웨어가 D5 D6 만 써서 D4 D7 이 떠 바퀴가 계속 돌았다).
+// A 채널: A-1A D6 (세기), A-1B D7. B 채널: B-1B D5 (세기), B-1A D4. 아래 출력부에서 A 와 같이 쓴다.
+// D4 D7 은 PWM 이 안 되는 핀이라 후진(세기 핀 반대편)은 제대로 안 된다. 뒤 센서가 없어 후진을 꺼 두었으므로 지금은 문제없다.
+const uint8_t PIN_MOTOR_A1A = 6;      // 드라이버 A-1A (PWM 핀)
+const uint8_t PIN_MOTOR_A1B = 7;      // 드라이버 A-1B (보통 핀)
 const uint8_t PIN_RC          = 2;      // 쓰지 않으면 USE_RC 를 0 으로
 const uint8_t PIN_BUZZER      = 13;     // 이 차의 부저는 D13 (나노의 L LED 와 같은 핀)
 
@@ -228,23 +231,6 @@ void beepSet(bool on) {
 }
 
 // ---------------------------------------------------------------- 출력
-// L9110 한 채널. pwmPin 에 세기, dirPin 에 방향.
-//   정지          dirPin LOW,  pwmPin 0
-//   한쪽 (fwd)    dirPin LOW,  pwmPin pwm        -> 차이가 pwm
-//   반대쪽        dirPin HIGH, pwmPin 255 - pwm  -> 차이가 pwm (반대 방향)
-void driveChannel(uint8_t pwmPin, uint8_t dirPin, int pwm, bool fwd) {
-  if (pwm == 0) {
-    digitalWrite(dirPin, LOW);
-    analogWrite(pwmPin, 0);
-  } else if (fwd) {
-    digitalWrite(dirPin, LOW);
-    analogWrite(pwmPin, pwm);
-  } else {
-    digitalWrite(dirPin, HIGH);
-    analogWrite(pwmPin, 255 - pwm);
-  }
-}
-
 void applyOutputs(int speedMMS, float steerDeg) {
   steerServo.write(constrain(STEER_CENTER_DEG + STEER_GAIN * steerDeg, 0, 180));
 
@@ -252,10 +238,16 @@ void applyOutputs(int speedMMS, float steerDeg) {
   int pwm = (int)((long)abs(speedMMS) * 255 / MAX_SPEED_MMS);
   pwm = constrain(pwm, 0, 255);
   if (pwm < MOTOR_MIN_PWM) pwm = 0;        // 너무 느리면 안 돌고 소리만 나므로 끈다
-  bool fwd = speedMMS > 0;
-  // A 는 A-1A 에 세기를 줄 때 전진. B 는 세기 핀이 반대편(B-1B)이라 방향을 뒤집어 넣는다.
-  driveChannel(PIN_MOTOR_A1A, PIN_MOTOR_A1B, pwm, fwd != MOTOR_A_INVERT);
-  driveChannel(PIN_MOTOR_B1B, PIN_MOTOR_B1A, pwm, fwd == MOTOR_B_INVERT);
+  if (pwm == 0) {                          // 정지
+    analogWrite(PIN_MOTOR_A1A, 0); analogWrite(5, 0);
+    analogWrite(PIN_MOTOR_A1B, 0); analogWrite(4, 0);
+  } else if (speedMMS > 0) {               // 전진
+    analogWrite(PIN_MOTOR_A1A, pwm); analogWrite(5, pwm);
+    analogWrite(PIN_MOTOR_A1B, 0); analogWrite(4, 0);
+  } else {                                 // 후진
+    analogWrite(PIN_MOTOR_A1A, 0); analogWrite(5, 0);
+    analogWrite(PIN_MOTOR_A1B, pwm); analogWrite(4, pwm);
+  }
 }
 
 // ---------------------------------------------------------------- 시작
@@ -268,8 +260,6 @@ void setup() {
   steerServo.attach(PIN_STEER_SERVO);
   pinMode(PIN_MOTOR_A1A, OUTPUT);
   pinMode(PIN_MOTOR_A1B, OUTPUT);
-  pinMode(PIN_MOTOR_B1A, OUTPUT);
-  pinMode(PIN_MOTOR_B1B, OUTPUT);
   applyOutputs(0, 0);                       // 모터 정지 상태로 시작
   sweepServo.write(SWEEP_CENTER_DEG);
   if (USE_RC) pinMode(PIN_RC, INPUT);
@@ -277,7 +267,7 @@ void setup() {
 
   sharpBegin();
   mpuBegin();                                // 이 동안 차를 가만히 둘 것
-  IrReceiver.begin(PIN_IR, DISABLE_LED_FEEDBACK);
+  IrReceiver.begin(PIN_IR, DISABLE_LED_FEEDBACK);   // LED 피드백은 D13(부저)이라 끈다
   lastCmdAt = millis();
   sweepMovedAt = millis();
 }
@@ -285,6 +275,7 @@ void setup() {
 // ---------------------------------------------------------------- 반복
 void irBeep(int ms) { beepSet(true); delay(ms); beepSet(false); }
 
+// 리모컨으로 정한 거리를 파이에 알린다: G,<cm>*<검사값>
 void sendGoal(int cm) {
   char b[16];
   int n = snprintf(b, sizeof(b), "G,%d", cm);
@@ -331,10 +322,10 @@ void loop() {
     if (IrReceiver.decodedIRData.protocol != UNKNOWN && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) {
       int d = -1;
       for (int i = 0; i < 10; i++) if (IR_DIGITS[i] == c) d = i;
-      if (!irPaused) { irPaused = true; irBeep(400); }
-      else if (d >= 0) { irNum = (irNum * 10 + d) % 1000; irBeep(30); }
-      else if (c == 0x09) { irNum = 0; irBeep(200); }
-      else if (c == 0x43 && (irNum > 0 || irHasGoal)) {
+      if (!irPaused) { irPaused = true; irBeep(400); }                         // 달리는 중: 아무 버튼이나 정지
+      else if (d >= 0) { irNum = (irNum * 10 + d) % 1000; irBeep(30); }       // 숫자
+      else if (c == 0x09) { irNum = 0; irBeep(200); }                          // EQ: 지우기
+      else if (c == 0x43 && (irNum > 0 || irHasGoal)) {                        // ▶||: 출발
         if (irNum > 0) { sendGoal(irNum); irNum = 0; irHasGoal = true; }
         irPaused = false; irBeep(100);
       }
