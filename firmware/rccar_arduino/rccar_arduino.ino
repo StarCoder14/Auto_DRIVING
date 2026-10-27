@@ -115,6 +115,9 @@ const float SWEEP_CENTER_DEG = 90.0;
 // 아직 좌우가 다르면 많이 가는 쪽 값만 0.05 씩 바꿔 다시 올릴 것
 const float SWEEP_GAIN_LEFT  = 0.8;
 const float SWEEP_GAIN_RIGHT = 1.0;
+// 이 차의 센서 서보는 각도를 키우면 오른쪽으로 돎. 코드는 왼쪽을 양수로 쓰므로 서보에 줄 때만 뒤집음.
+// 이게 없을 땐 왼쪽 기둥이 지도 오른쪽에 찍혀 지도가 거울처럼 뒤집혀 있었음 (2026-10-28, 보정 0.8 을 걸었더니 오른쪽이 줄어서 알게 됨)
+const int SWEEP_SERVO_DIR = -1;
 
 // ---------------------------------------------------------------- 상태
 Servo sweepServo, steerServo;
@@ -343,7 +346,7 @@ void loop() {
       if (sweepDeg < SWEEP_MIN_DEG) { sweepDeg = SWEEP_MIN_DEG + SWEEP_STEP_DEG; sweepDir =  SWEEP_STEP_DEG; }
       // 왼쪽이 양수 (link.py 와 같음)
       float gain = sweepDeg > 0 ? SWEEP_GAIN_LEFT : SWEEP_GAIN_RIGHT;
-      sweepServo.write(constrain(SWEEP_CENTER_DEG + gain * sweepDeg, 0, 180));
+      sweepServo.write(constrain(SWEEP_CENTER_DEG + SWEEP_SERVO_DIR * gain * sweepDeg, 0, 180));
       sweepMovedAt = now; sweepSettled = false;
     }
   }
