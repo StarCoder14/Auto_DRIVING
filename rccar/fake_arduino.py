@@ -59,6 +59,9 @@ class FakeArduino:
             front_range = front_spec["max_range_m"]
             front_cone = math.radians(front_spec["cone_deg"])
             self.front_min = front_spec["min_range_m"]
+            limit = front_spec.get("sweep_deg", sweep_deg[1])
+            sweep_deg = (-limit, limit)
+            sweep_step = front_spec.get("sweep_step_deg", sweep_step)
         self.front = RangeSensorArray("front", [[fx, 0.0]], [0.0], front_range,
                                       cone=front_cone, subrays=9, noise_abs=0.02,
                                       noise_rel=0.01, rng=self.rng)

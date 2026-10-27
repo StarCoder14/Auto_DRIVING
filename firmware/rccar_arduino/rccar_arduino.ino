@@ -98,8 +98,9 @@ const float STEER_GAIN       = 1.0;     // 실측해서 고칠 것
 const int MOTOR_MIN_PWM = 60;
 
 // 앞 센서가 훑는 각도 (도). 시뮬레이터의 tof_sweep 과 같은 범위
-const int SWEEP_MIN_DEG = -90;
-const int SWEEP_MAX_DEG =  90;
+// 90 도까지 돌리면 센서가 오렌지파이 보드에 살짝씩 닿아서 75 도로 줄임 (2026-10-28). car_specs.FRONT_SENSOR 와 같게
+const int SWEEP_MIN_DEG = -75;
+const int SWEEP_MAX_DEG =  75;
 const int SWEEP_STEP_DEG = 15;
 // 서보가 멈추길 기다리는 시간.
 // 45 ms 로 두면 15 도 옮기는 동안 다 못 가서, 잴 때 평균 6.7 도 어긋난다.
@@ -128,6 +129,8 @@ unsigned long lastCmdAt = 0;
 int   frontMM = -1, rearMM = -1;
 float gyroDps = 0.0;
 float gyroBias = 0.0;
+// 자이로가 한 번이라도 대답을 안 했으면 true. 리셋 전까지 안 풀림 (방향을 이미 놓쳤으므로)
+bool  gyroFailed = false;
 
 char  rxBuf[48];
 uint8_t rxLen = 0;
@@ -153,6 +156,12 @@ int16_t mpuRawZ() {
   Wire.write(0x47);                          // GYRO_ZOUT_H
   Wire.endTransmission(false);
   Wire.requestFrom((uint8_t)MPU, (uint8_t)2, (uint8_t)true);
+  // 시간 초과로 포기했으면 받은 값이 없음. 0 편향 근처 값을 돌려줘 방향이 튀지 않게 함
+  if (Wire.getWireTimeoutFlag() || Wire.available() < 2) {
+    Wire.clearWireTimeoutFlag();
+    gyroFailed = true;
+    return (int16_t)gyroBias;
+  }
   int16_t v = (Wire.read() << 8) | Wire.read();
   return v;
 }
@@ -260,6 +269,9 @@ void setup() {
   Serial.begin(115200);
   Wire.begin();
   Wire.setClock(400000);
+  // 자이로가 3 ms 안에 대답 안 하면 포기하고 넘어감. 예전엔 무한히 기다려서, 선을 건드려 자이로가
+  // 순간 끊기면 아두이노 전체가 얼었음 (2026-10-28 센서 멈추고 보고 0 줄). 끝의 true 는 I2C 를 초기화하라는 뜻
+  Wire.setWireTimeout(3000, true);
 
   sweepServo.attach(PIN_SWEEP_SERVO);
   steerServo.attach(PIN_STEER_SERVO);
@@ -283,15 +295,29 @@ void setup() {
 // ---------------------------------------------------------------- 반복
 void irBeep(int ms) { beepSet(true); delay(ms); beepSet(false); }
 
-// 리모컨으로 정한 거리를 파이에 알린다: G,<cm>*<검사값>
-void sendGoal(int cm) {
-  char b[16];
-  int n = snprintf(b, sizeof(b), "G,%d", cm);
+// 한 줄 끝에 *<검사값> 을 붙여 파이로 보냄
+void sendLine(const char* b, int n) {
   Serial.print(b);
   Serial.print('*');
   char h[4];
   snprintf(h, sizeof(h), "%02X", checksum(b, n));
   Serial.println(h);
+}
+
+// 리모컨으로 정한 거리를 파이에 알린다: G,<cm>*<검사값>
+void sendGoal(int cm) {
+  char b[16];
+  int n = snprintf(b, sizeof(b), "G,%d", cm);
+  sendLine(b, n);
+}
+
+// 들은 리모컨 신호를 그대로 파이에 알림: I,<방식>,<주소>,<버튼>. 해석 못 한 것(방식 0)도 보냄.
+// 리모컨이 안 먹을 때 수신기가 아예 못 듣는 건지(줄이 없음), 듣는데 못 알아듣는 건지(방식 0) 가리려고 넣음
+void sendIr() {
+  char b[24];
+  int n = snprintf(b, sizeof(b), "I,%u,%u,%u", (unsigned)IrReceiver.decodedIRData.protocol,
+                   IrReceiver.decodedIRData.address, IrReceiver.decodedIRData.command);
+  sendLine(b, n);
 }
 
 void loop() {
@@ -328,9 +354,10 @@ void loop() {
   }
   if (IrReceiver.decode()) {
     uint8_t c = IrReceiver.decodedIRData.command;
-    // 우리 리모컨은 NEC 방식만 씀. 예전엔 UNKNOWN 만 걸러서, 형광등이나 햇빛 잡음이 다른 방식으로
-    // 잘못 읽히면 숫자로 받아들여 삑 울릴 수 있었음
-    if (IrReceiver.decodedIRData.protocol == NEC && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) {
+    if (!(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) sendIr();
+    // NEC 만 받게 했더니 리모컨이 아예 안 먹어서 '해석 못 함'만 버리는 예전 규칙으로 되돌림.
+    // I 줄로 우리 리모컨의 진짜 방식과 주소를 알아낸 뒤 그것만 받게 좁힐 것
+    if (IrReceiver.decodedIRData.protocol != UNKNOWN && !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) {
       int d = -1;
       for (int i = 0; i < 10; i++) if (IR_DIGITS[i] == c) d = i;
       if (!irPaused) { irPaused = true; irBeep(400); }                         // 달리는 중: 아무 버튼이나 정지
@@ -346,6 +373,7 @@ void loop() {
   if (irPaused) { manual = true; flags |= 4; }
   bool late = (millis() - lastCmdAt) > WATCHDOG_MS;
   if (late) flags |= 8;
+  if (gyroFailed) flags |= 16;
 
   // 예전엔 모터를 꺼 놓고도 명령 속도를 그대로 보고해서, 파이가 서 있는 차를 가고 있다고 믿었음
   int applied = applyOutputs((late || manual) ? 0 : cmdSpeedMMS,

@@ -55,6 +55,10 @@ FRONT_SENSOR = {
     "max_range_m": 0.80,     # 이보다 멀면 펌웨어가 '못 맞힘'으로 보냄
     # 빛이 퍼지는 폭. 아직 안 잼. 레이저(27도)보다 훨씬 좁다고 알려져 있어 10도로 짐작함
     "cone_deg": 10.0,
+    # 서보가 좌우로 돌리는 끝 각도. 펌웨어의 SWEEP_MAX_DEG 와 같아야 함.
+    # 90 도까지 돌리면 센서가 오렌지파이 보드에 살짝씩 닿아서 75 도로 줄임 (2026-10-28)
+    "sweep_deg": 75,
+    "sweep_step_deg": 15,
 }
 
 # 펌웨어의 속도 -> 모터 힘 변환. rccar_arduino.ino 의 MAX_SPEED_MMS, MOTOR_MIN_PWM 과 같아야 함

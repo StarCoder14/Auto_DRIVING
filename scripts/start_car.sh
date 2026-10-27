@@ -26,7 +26,8 @@ while true; do
   echo "$(date '+%F %T') 주행 프로그램 시작 (포트 $P)"
   started=$(date +%s)
   # 목적지 99 m 는 '아직 없음' 자리표시. 리모컨에서 숫자를 받으면 그걸로 바뀜
-  python3 run_robot.py --port "$P" --goal 99 0 --max-speed 0.5 --countdown 0 --max-time 3600
+  # -u: 출력을 모아 두지 않고 바로 car.log 에 씀. 안 그러면 노트북에서 기록을 봐도 몇 분 늦은 내용만 보임
+  python3 -u run_robot.py --port "$P" --goal 99 0 --max-speed 0.5 --countdown 0 --max-time 3600
   code=$?
   echo "$(date '+%F %T') 주행 프로그램 끝 (종료 코드 $code)"
   # 켜자마자 죽으면 (코드 오류 등) 3 초마다 포트를 다시 열게 되고, 그때마다 나노가 다시 켜져 삑삑거림.
