@@ -194,6 +194,16 @@ def test_drive_log_written() -> None:
     assert "drive" in modes and "waiting" in modes, f"주행 상태가 안 남음: {modes}"
 
 
+def test_small_car_arena() -> None:
+    """22 cm 차 설정으로 1.5 m 시험장 지도 0~9 번을 다 도착하고, 기둥에 안 닿아야 함."""
+    from run_arena_check import drive_one
+    for seed in range(10):
+        robot, closest, miss = drive_one(seed, 0.5)
+        assert robot.arrived, f"시험장 {seed}: 도착 못 함 ({robot.end_reason})"
+        assert closest > 0.0, f"시험장 {seed}: 기둥에 {-closest * 100:.1f} cm 닿음"
+        assert miss < 0.12, f"시험장 {seed}: 목적지에서 {miss * 100:.1f} cm 떨어져 섬"
+
+
 TESTS = [
     ("명령 문장 형식", test_cmd_round_trip),
     ("상태 문장 해석", test_status_parse),
@@ -206,6 +216,7 @@ TESTS = [
     ("주행 기록 CSV", test_drive_log_written),
     ("부저 명령 형식", test_buzzer_command_round_trip),
     ("카운트다운 삑삑, 차는 멈춤", test_countdown_beeps_without_moving),
+    ("22 cm 차, 1.5 m 시험장 10 개", test_small_car_arena),
 ]
 
 
@@ -228,13 +239,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-def test_small_car_arena() -> None:
-    """22 cm 차 설정으로 1.5 m 시험장 지도 0~9 번을 다 도착하고, 기둥에 안 닿아야 함."""
-    from run_arena_check import drive_one
-    for seed in range(10):
-        robot, closest, miss = drive_one(seed, 0.5)
-        assert robot.arrived, f"시험장 {seed}: 도착 못 함 ({robot.end_reason})"
-        assert closest > 0.0, f"시험장 {seed}: 기둥에 {-closest * 100:.1f} cm 닿음"
-        assert miss < 0.12, f"시험장 {seed}: 목적지에서 {miss * 100:.1f} cm 떨어져 섬"

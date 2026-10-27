@@ -13,7 +13,8 @@ deploy.py -- 오렌지파이로 코드를 보내고, 보드에서 확인하고, 
 핀 번호는 아두이노 펌웨어에만 필요하다. 여기서 보내는 오렌지파이 파이썬 코드는 핀과 상관없다.
 그래서 차체가 확정되기 전에도 올려서 보드 속도를 미리 잴 수 있다.
 
-보내는 것   rccar/, tests/, run*.py, layouts/, requirements.txt, *.md
+보내는 것   rccar/, tests/, scripts/, firmware/, layouts/, run*.py, *_test.py, requirements.txt, *.md
+받는 곳     보드의 ~/Auto_DRIVING (차가 실제로 쓰는 폴더. 예전엔 ~/rccar 로 보내서 차가 못 썼음)
 빼는 것     recordings/, logs/, 버릴것/, __pycache__  (보드에 필요 없거나 보드에서 생긴다)
 """
 
@@ -26,14 +27,19 @@ import tempfile
 import time
 
 USER = "orangepi"
-REMOTE_DIR = "rccar"          # 보드의 ~/rccar
+REMOTE_DIR = "Auto_DRIVING"   # 보드의 ~/Auto_DRIVING. start_car.sh 와 손으로 고친 파일이 다 여기 있음
 SSH_OPTS = ["-o", "ConnectTimeout=6", "-o", "BatchMode=yes",
             "-o", "StrictHostKeyChecking=accept-new"]
 
 # 보낼 것: (로컬 경로, 파일이면 True)
-INCLUDE_DIRS = ["rccar", "tests", "layouts"]
+INCLUDE_DIRS = ["rccar", "tests", "layouts", "scripts", "firmware"]
 INCLUDE_GLOBS = ["run.py", "run_robot.py", "run_circle_model.py", "run_error_split.py",
-                 "run_forever.py", "loop.py", "requirements.txt"]
+                 "run_arena_check.py", "run_forever.py", "loop.py", "motor_test.py", "servo_test.py",
+                 "requirements.txt"]
+# 보낸 뒤 보드 파일 지문(md5)이 노트북과 같은지 볼 파일. 차가 달릴 때 쓰는 것들
+VERIFY_FILES = ["run_robot.py", "rccar/robot.py", "rccar/link.py", "rccar/car_specs.py",
+                "rccar/fake_arduino.py", "scripts/start_car.sh",
+                "firmware/rccar_arduino/rccar_arduino.ino"]
 INCLUDE_DOCS = ["README.md", "HANDOFF.md", "ALGORITHM.md", "실물_올리기.md",
                 "하드웨어_준비.md", "보고서_구상.md", "알고리즘_정리.md"]
 EXCLUDE_PARTS = ("__pycache__", ".pyc", "/recordings/", "/logs/", "/버릴것/")
@@ -77,19 +83,30 @@ def build_archive():
     buffer = io.BytesIO()
     count = 0
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
-        def add(path):
+        def add_file(full):
             nonlocal count
+            arcname = full.replace("\\", "/")
+            if arcname.endswith(".sh"):
+                # 윈도우에서 줄 끝이 CRLF 로 바뀌어 있으면 보드의 bash 가 깨지므로 LF 로 바꿔 넣음
+                data = _file_bytes(full)
+                info = tar.gettarinfo(full, arcname=arcname)
+                info.size = len(data)
+                info.mode = 0o755
+                tar.addfile(info, io.BytesIO(data))
+            else:
+                tar.add(full, arcname=arcname)
+            count += 1
+
+        def add(path):
             if os.path.isdir(path):
                 for root, dirs, names in os.walk(path):
                     dirs[:] = [d for d in dirs if not _skip(os.path.join(root, d))]
                     for name in names:
                         full = os.path.join(root, name)
                         if not _skip(full):
-                            tar.add(full, arcname=full.replace("\\", "/"))
-                            count += 1
+                            add_file(full)
             elif os.path.exists(path):
-                tar.add(path, arcname=path.replace("\\", "/"))
-                count += 1
+                add_file(path)
 
         for directory in INCLUDE_DIRS:
             add(directory)
@@ -117,6 +134,36 @@ def push(address):
     import os
     os.unlink(local_tar)
     return done
+
+
+def _file_bytes(path):
+    """보드에 들어갈 모양 그대로의 파일 내용. .sh 는 줄 끝을 LF 로 바꿈."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if path.replace("\\", "/").endswith(".sh"):
+        data = data.replace(b"\r\n", b"\n")
+    return data
+
+
+def verify(address):
+    """보낸 파일의 md5 지문을 노트북과 보드에서 각각 구해 비교함. 하나라도 다르면 False."""
+    import hashlib
+    names = " ".join(VERIFY_FILES)
+    result = subprocess.run(["ssh", *SSH_OPTS, host(address), f"cd ~/{REMOTE_DIR} && md5sum {names}"],
+                            capture_output=True, text=True)
+    board = {}
+    for line in result.stdout.splitlines():
+        digest, _, name = line.partition("  ")
+        board[name.strip()] = digest
+    print("\n== 보드 파일이 노트북과 같은지 (md5 지문) ==")
+    same = True
+    for name in VERIFY_FILES:
+        mine = hashlib.md5(_file_bytes(name)).hexdigest()
+        theirs = board.get(name, "없음")
+        mark = "같음" if mine == theirs else "다름"
+        same = same and mine == theirs
+        print(f"  {mark}  {name:<42} 노트북 {mine[:8]}  보드 {theirs[:8]}")
+    return same
 
 
 def run_remote(address, command, label):
@@ -174,6 +221,9 @@ def main():
         print("보내기 실패")
         return 1
     print("보내기 완료")
+    if not verify(args.address):
+        print("지문이 다른 파일이 있음. 보드 파일이 노트북과 다르니 주행 전에 확인할 것")
+        return 1
 
     ok = True
     if not args.no_test:
