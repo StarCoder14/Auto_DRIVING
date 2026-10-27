@@ -24,7 +24,8 @@ from collections import deque
 
 import numpy as np
 
-from .link import FLAG_FRONT_OK, FLAG_MANUAL, FLAG_REAR_OK, FLAG_WATCHDOG, Status
+from .link import (FLAG_FRONT_OK, FLAG_MANUAL, FLAG_REAR_OK, FLAG_WATCHDOG, NOT_MEASURED_DEG,
+                   Status)
 from .sensors import RangeSensorArray
 from .vehicle import Vehicle, VehicleParams
 
@@ -167,7 +168,7 @@ class FakeArduino:
                 st = Status(
                     t_ms=int(self.t * 1000),
                     gyro_dps=math.degrees(gyro),
-                    sweep_rad=getattr(self, "_front_a", 0.0),
+                    sweep_rad=getattr(self, "_front_a", math.radians(NOT_MEASURED_DEG)),
                     front_m=self._front_m if flags & FLAG_FRONT_OK else math.inf,
                     rear_m=self._rear_m if flags & FLAG_REAR_OK else math.inf,
                     speed_mps=self.vehicle.v,

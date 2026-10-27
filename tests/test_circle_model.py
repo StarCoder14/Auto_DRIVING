@@ -142,7 +142,8 @@ def test_fixed_layouts():
                 "hidden_goal": "arrived", "goal_inside": "goal_blocked"}
     for name, result in expected.items():
         layout = L.BY_NAME[name]
-        trip = drive(layout.start, layout.goal, layout.inflated())
+        # README 표는 차 반폭 7 cm 로 낸 결과임. 실측 6 cm 를 쓰면 close_pair 가 빠져나가 표와 달라짐
+        trip = drive(layout.start, layout.goal, layout.inflated(half_width=0.07))
         assert trip.result == result, f"{name}: {trip.result} (예상 {result})"
 
 

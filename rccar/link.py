@@ -63,6 +63,10 @@ def encode_buzzer(on: bool) -> bytes:
     return f"{body}*{_checksum(body):02X}\n".encode("ascii")
 
 
+# 켜진 뒤 아직 한 번도 안 쟀을 때 펌웨어가 보내는 센서 방향. 진짜 방향(-90~90도)과 안 겹침
+NOT_MEASURED_DEG = 999
+
+
 @dataclass
 class Status:
     t_ms: int

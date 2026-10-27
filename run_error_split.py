@@ -26,26 +26,8 @@ from rccar import car_specs
 from rccar import error_split as E
 from rccar import scenarios as S
 from rccar.vehicle import VehicleParams
-from rccar.world import World
 
 OUT_DIR = os.path.join("recordings", "error_split")
-
-
-def arena_layout(seed):
-    """car_specs 의 시험 공간 크기로 계획서대로 기둥 3~6개를 무작위로 놓음. 출발은 왼쪽, 목표는 오른쪽."""
-    rng = np.random.default_rng(50_000 + seed)
-    width, length = car_specs.arena_m()
-    radius = car_specs.pillar_radius_m()
-    start = np.array([0.15 * width, rng.uniform(0.3, 0.7) * length, 0.0])
-    goal = np.array([0.85 * width, rng.uniform(0.3, 0.7) * length])
-    count = int(rng.integers(3, 7))
-    circles = []
-    while len(circles) < count:
-        center = rng.uniform([0.3 * width, 0.1 * length], [0.7 * width, 0.9 * length])
-        if any(np.hypot(*(center - np.asarray(other))) < 2 * radius + 0.05 for other, _ in circles):
-            continue
-        circles.append((tuple(center), radius))
-    return World(circles=circles, bounds=(-16, -16, 16, 16)), start, goal
 
 
 def maps_for(args):
@@ -53,7 +35,7 @@ def maps_for(args):
         return [(f"random{seed}", *S.make("random", seed))
                 for seed in range(args.seed, args.seed + args.count)]
     if args.map == "arena":
-        return [(f"arena{seed}", *arena_layout(seed))
+        return [(f"arena{seed}", *S.make("arena", seed))
                 for seed in range(args.seed, args.seed + args.count)]
     return [(os.path.basename(args.map), *E.load_layout(args.map))]
 

@@ -44,7 +44,7 @@ class RobotConfig:
     def __init__(self, bounds=(-12.0, -12.0, 12.0, 12.0), grid_res=0.12,
                  control_hz=50.0, plan_hz=10.0, goal_tol=0.45,
                  max_speed=1.0, rev_speed=0.25, max_time=120.0, has_rear_sensor=True,
-                 min_speed=0.0):
+                 min_speed=0.0, stop_slack=0.12):
         self.bounds = bounds          # 지도 범위. 출발점이 (0, 0) 이다
         self.grid_res = grid_res
         self.control_hz = control_hz
@@ -57,6 +57,13 @@ class RobotConfig:
         self.has_rear_sensor = has_rear_sensor
         # 이보다 느리게 가라고 하면 실제 모터는 안 돎. 실물은 car_specs.min_drive_speed_mps() 를 넣음
         self.min_speed = min_speed
+        # 예측 정지 때 제동 거리에 더 보는 길이 (m). 작은 차는 줄여야 기둥 옆을 지나갈 수 있음
+        self.stop_slack = stop_slack
+
+    def max_goal_dist(self):
+        """출발점에서 지도 끝까지 가장 가까운 거리보다 0.5 m 안쪽."""
+        x0, y0, x1, y1 = self.bounds
+        return min(-x0, -y0, x1, y1) - 0.5
 
 
 class Robot:
@@ -107,6 +114,7 @@ class Robot:
         # 출발 전 한 번 훑기: 앞 센서가 좌우를 다 본 뒤에 움직인다
         self._sweep_min = math.inf
         self._sweep_max = -math.inf
+        self._last_sweep_rad = None
         self.ready = False
         # 뒤 센서가 방금 잰 거리 (탈출할 때 지도 대신 이것을 믿는다)
         self.rear_m = math.inf
@@ -142,7 +150,14 @@ class Robot:
                               G.wrap_pi(th + dth)])
 
         # 지도: 앞 센서는 지금 보고 있는 방향, 뒤 센서는 고정
-        self._add_measurement(self.front, s.sweep_rad, s.front_m)
+        # 아두이노는 한 번 잰 거리를 다음에 잴 때까지 (0.09 초) 상태 줄마다 되풀이해 보냄.
+        # 예전엔 그걸 매번 지도에 넣어서 한 번 '못 맞힘'이 네다섯 번 칠해졌고, 가는 기둥 가장자리가
+        # 금방 지워졌음 (시험장 2 번 지도에서 지워진 기둥에 박음). 이제 방향이 바뀐 줄, 곧 새로 잰 것만 넣음
+        measured = abs(s.sweep_rad) <= math.pi          # 아직 한 번도 안 쟀으면 펌웨어가 999 도를 보냄
+        new_reading = measured and s.sweep_rad != self._last_sweep_rad
+        self._last_sweep_rad = s.sweep_rad
+        if new_reading:
+            self._add_measurement(self.front, s.sweep_rad, s.front_m)
         if self.C.has_rear_sensor:
             self._add_measurement(self.rear, math.pi, s.rear_m)
             self.rear_m, self._rear_t = s.rear_m, self.t
@@ -152,7 +167,7 @@ class Robot:
         # 켜자마자 달리면 아직 못 본 기둥 쪽으로 경로를 잡는다. 서보가 180 도를 한 번
         # 훑는 데 1 초 남짓 걸리는데, 무작위 지도 17 번과 35 번에서 둘 다 출발 1 초 만에
         # 기둥에 붙었다. 하나는 갇혔고 하나는 닿았다.
-        if not self.ready:
+        if not self.ready and measured:
             a = math.degrees(s.sweep_rad)
             self._sweep_min = min(self._sweep_min, a)
             self._sweep_max = max(self._sweep_max, a)
@@ -167,7 +182,15 @@ class Robot:
         if len(fe):
             integrate_rays(self.grid, G.compose(self.pose, fo),
                            G.compose(self.pose, fe), mark_free=True, occupied=False)
-        if len(oe):
+        # 막힘은 시뮬레이터(hybrid_sim._sense_array)와 똑같이 빛이 퍼진 호 전체에 칠함.
+        # 예전엔 가운데 한 점에만 칠하고 비었음은 호 전체에 칠해서, 가는 기둥이 옆을 스친 빛에 지워졌음
+        # (시험장 지도 30 개 중 기둥에 닿은 5 번 가운데 3 번은 닿는 순간 그 기둥이 지도에 없었음)
+        if sensor.map_arc:
+            ao, ae, aw, ak = sensor.occupied_for_map(m, self.grid.res)
+            if len(ae):
+                integrate_rays(self.grid, G.compose(self.pose, ao), G.compose(self.pose, ae),
+                               mark_free=False, occupied=True, occ_weight=aw, groups=ak)
+        elif len(oe):
             integrate_rays(self.grid, G.compose(self.pose, oo),
                            G.compose(self.pose, oe), mark_free=False, occupied=True)
 
@@ -186,6 +209,10 @@ class Robot:
 
     def plan_cycle(self):
         """10 Hz. 거리장을 새로 만들고 필요하면 다시 계획한다."""
+        # 리모컨 출발을 기다리는 동안은 길을 찾지 않음. 자동 시작은 목적지를 99 m 로 두고 기다리는데,
+        # 지도 밖 목적지로 길을 찾느라 한 번에 몇 초씩 걸려 프로그램 전체가 느려졌음. 지도는 계속 쌓임
+        if self.manual:
+            return
         self.D = distance_field(self.grid.occupied_mask(), self.grid.res,
                                 self.HC.field_cap)
         self.planner.prepare(self.grid, self.D)
@@ -264,7 +291,7 @@ class Robot:
         # 예측 정지: 이 명령대로 제동 거리만큼 가면 차체가 닿는가
         sgn = np.sign(v) if abs(v) > 1e-3 else np.sign(self.speed)
         if sgn != 0:
-            dist = max(abs(self.speed), abs(v)) ** 2 / (2.0 * self.V.max_decel) + 0.12
+            dist = max(abs(self.speed), abs(v)) ** 2 / (2.0 * self.V.max_decel) + self.C.stop_slack
             kap = math.tan(s) / self.V.wheelbase
             sig = sgn * np.linspace(0.04, dist, 6)
             x, y, th = self.pose
@@ -359,6 +386,8 @@ class Robot:
             self.link.goal_cm = None
             x, y, th = self.pose
             d = g / 100.0 + self.C.goal_tol
+            # 리모컨으론 999 cm 까지 칠 수 있는데 지도는 출발점에서 사방 몇 m 뿐임. 지도 안쪽으로 줄임
+            d = min(d, self.C.max_goal_dist())
             self.goal = np.array([x + d * math.cos(th), y + d * math.sin(th)])
             self._force_replan = True
         self.t += dt
