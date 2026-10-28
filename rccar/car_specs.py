@@ -70,10 +70,11 @@ FIRMWARE_MOTOR_MIN_PWM = 120     # 힘이 이보다 약하면 펌웨어가 모�
 # 차가 낼 수 있는 가장 빠른 속도라 주행 최고 속도도 이걸로 씀
 DRIVE_MAX_SPEED_MPS = FIRMWARE_MAX_SPEED_MPS
 
-# 자이로로 방향을 잴지. 펌웨어의 USE_GYRO 와 같아야 함.
-# 2026-10-28 자이로 판이 I2C 선을 바닥에 붙잡아 아무 대답도 못 하게 돼서 꺼 둠. 꺼 두면 방향은
-# 조향각과 간 거리로 계산함 (자전거 모형). 바퀴가 미끄러지면 틀어지므로 새 판을 달면 True 로
-USE_GYRO = False
+# 아두이노가 보낸 자이로 자리 값으로 방향을 잴지.
+# 2026-10-28 자이로 판이 고장 나서 펌웨어가 진짜 자이로 대신 '속도 x tan(실제 조향각) / 축거' 를 계산해 그 자리에 보냄.
+# 펌웨어는 서보를 명령의 STEER_GAIN(1.5) 배로 돌리는데 여기선 그걸 몰라서, 직접 계산(False)하면 덜 돈 걸로 틀림.
+# 그래서 True 로 두고 펌웨어 계산을 믿음. False 는 펌웨어 없이 자전거 모형을 시험할 때만 씀
+USE_GYRO = True
 
 
 def small_car_settings(max_speed=DRIVE_MAX_SPEED_MPS, max_time=90.0):
