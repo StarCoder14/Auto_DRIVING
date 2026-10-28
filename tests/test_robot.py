@@ -152,6 +152,10 @@ def test_gyro_error_blocks_start() -> None:
         rb.link.lines = [_status_line(ms=2000 + 20 * k, sweep=600, front=-1, flags=gyro_bad, cmd=0, gyro=0)]
         assert rb.step(0.02), "자이로 이상으로 서 있는데 끝나 버렸다"
     assert not rb.stuck, "자이로 이상으로 서 있는 걸 갇힘으로 셌다"
+    # 펌웨어가 회복을 알리면(16 이 꺼지면) 다시 달릴 수 있어야 함. 예전엔 리셋 전까지 계속 서 있었음
+    rb.link.lines = [_status_line(ms=2000 + 20 * 400, sweep=600, front=-1, flags=FLAG_FRONT_OK, cmd=0, gyro=0)]
+    rb.step(0.02)
+    assert not rb.gyro_error and rb._mode() != "gyro_error", "자이로가 회복됐는데도 이상 상태로 남음"
 
 
 def test_fake_hardware_drive() -> None:
