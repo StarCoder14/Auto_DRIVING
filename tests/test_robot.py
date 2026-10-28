@@ -147,6 +147,11 @@ def test_gyro_error_blocks_start() -> None:
     rb.control_cycle()
     assert rb.stats["plans"] == 0 and rb.link.sent[-1][0] == 0.0, "자이로 이상인데 출발하려 했다"
     assert rb._mode() == "gyro_error"
+    # 자이로 이상으로 서 있는 동안은 갇힘으로 끝나면 안 됨 (예전엔 23 초 뒤 '갇힘'으로 기록됨)
+    for k in range(400):                       # 8 초. 갇힘 판정 시간(5 초)보다 김
+        rb.link.lines = [_status_line(ms=2000 + 20 * k, sweep=600, front=-1, flags=gyro_bad, cmd=0, gyro=0)]
+        assert rb.step(0.02), "자이로 이상으로 서 있는데 끝나 버렸다"
+    assert not rb.stuck, "자이로 이상으로 서 있는 걸 갇힘으로 셌다"
 
 
 def test_fake_hardware_drive() -> None:

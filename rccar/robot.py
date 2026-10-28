@@ -347,7 +347,9 @@ class Robot:
     STUCK_SECONDS = 5.0
 
     def _check_stuck(self):
-        if self.C.has_rear_sensor or not self.ready or self.manual or self.arrived or not self.has_goal:
+        # 자이로 이상으로 일부러 서 있는 것도 갇힘이 아님. 예전엔 23 초 뒤 '갇힘'으로 기록돼 원인이 가려졌음
+        if (self.C.has_rear_sensor or not self.ready or self.manual or self.arrived or not self.has_goal
+                or self.gyro_error):
             self._still_since = None
             return
         # 이 차는 원래 1 초에 4~10 cm 로 가서, 예전 기준(5 cm)이면 달리는 중에도 갇힘으로 오해함
