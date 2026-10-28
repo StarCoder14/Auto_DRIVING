@@ -121,7 +121,7 @@ class Robot:
         # 서보 끝 각도보다 5 도 안쪽까지 봤으면 다 본 것으로 침. 서보가 끝까지 안 가고 조금 덜 돌아도 되게
         self._ready_deg = front_spec["sweep_deg"] - 5.0
         self.ready = False
-        # 자이로가 한 번이라도 대답을 안 했으면 방향을 믿을 수 없어 출발하지 않음
+        # 자이로가 지금 대답을 안 하면 방향을 믿을 수 없어 멈춤. 펌웨어가 회복을 알리면 다시 감
         self.gyro_error = False
         # 뒤 센서가 방금 잰 거리 (탈출할 때 지도 대신 이것을 믿는다)
         self.rear_m = math.inf
@@ -146,8 +146,10 @@ class Robot:
             return
         self.manual = s.manual
         if s.gyro_error and not self.gyro_error:
-            print("자이로가 대답을 안 한 적 있음. 방향을 믿을 수 없어 출발하지 않음. 자이로 선 확인 후 아두이노 리셋",
+            print("자이로가 대답을 안 함. 방향을 믿을 수 없어 멈춤. 회복되면 다시 감 (계속되면 자이로 선 확인)",
                   flush=True)
+        elif self.gyro_error and not s.gyro_error:
+            print("자이로 회복됨. 다시 감", flush=True)
         self.gyro_error = s.gyro_error
         self.speed = s.speed_mps
         self.last_status = s

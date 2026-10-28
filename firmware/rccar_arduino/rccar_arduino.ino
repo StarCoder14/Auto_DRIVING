@@ -88,6 +88,7 @@ unsigned long beepOffAt = 0;      // 0 이 아니면 이 시각에 부저를 끔
 // 이때는 손을 치웠고 모터도 꺼져 있어 차가 확실히 가만히 있음
 long biasSum = 0;
 unsigned int biasCount = 0;
+unsigned int biasFailStart = 0;   // 카운트다운 시작 때의 끊긴 횟수. 끝날 때와 다르면 모은 값을 안 씀
 
 // ---------------------------------------------------------------- 설정
 // 앞 거리 센서는 샤프 적외선 GP2Y0A21YK0F (아날로그, 10~80 cm). 신호선을 A0 에 꽂는다.
@@ -189,8 +190,14 @@ int   frontMM = -1, rearMM = -1;
 int   frontAdc = 0;                  // 거리로 바꾸기 전 전압값. 손 출발 판정에 씀
 float gyroDps = 0.0;
 float gyroBias = 0.0;
-// 자이로가 한 번이라도 대답을 안 했으면 true. 리셋 전까지 안 풀림 (방향을 이미 놓쳤으므로)
-bool  gyroFailed = false;
+// 자이로가 대답을 안 하기 시작한 때. 0 이면 지금 멀쩡함. 이 상태가 GYRO_BAD_MS 넘게 이어질 때만 '자이로 이상'(16)을 보냄.
+// 예전엔 한 번만 끊겨도 리셋할 때까지 이상 표시를 붙여서, 달리다 진동에 순간 끊기면 매번 그 자리에 서 버렸음 (2026-10-28)
+unsigned long gyroBadSince = 0;
+const unsigned long GYRO_BAD_MS = 200;
+// 지금까지 끊긴 횟수. 카운트다운 동안 끊겼는지 볼 때 씀
+unsigned int gyroFailCount = 0;
+unsigned long gyroCheckAt = 0;
+const unsigned long GYRO_CHECK_MS = 500;
 
 char  rxBuf[48];
 uint8_t rxLen = 0;
@@ -214,9 +221,36 @@ void mpuWrite(uint8_t reg, uint8_t value) {
   Wire.endTransmission(true);
 }
 
-void mpuBegin() {
-  mpuWrite(0x6B, 0);                         // 잠자기 해제
+// 레지스터 하나를 읽음. 대답이 없으면 -1
+int mpuRead(uint8_t reg) {
+  Wire.beginTransmission(MPU);
+  Wire.write(reg);
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint8_t)MPU, (uint8_t)1, (uint8_t)true);
+  if (Wire.getWireTimeoutFlag() || Wire.available() < 1) {
+    Wire.clearWireTimeoutFlag();
+    return -1;
+  }
+  return Wire.read();
+}
+
+// 잠자기 해제와 범위 설정. 전기가 흔들려 자이로가 혼자 다시 켜지면 잠자기, 기본 범위(±250)로 돌아가서 다시 넣어야 함
+void mpuSetup() {
+  mpuWrite(0x6B, 0);
   mpuWrite(0x1B, GYRO_RANGE_500);
+}
+
+// 0.5 초마다 설정이 그대로인지 봄. 혼자 다시 켜져 있으면 값이 엉뚱해도 끊김으로는 안 잡혀서 따로 확인함
+void mpuCheck(unsigned long now) {
+  if (now - gyroCheckAt < GYRO_CHECK_MS) return;
+  gyroCheckAt = now;
+  int power = mpuRead(0x6B);
+  int range = mpuRead(0x1B);
+  if (power < 0 || range < 0 || (power & 0x40) || (range & 0x18) != GYRO_RANGE_500) mpuSetup();
+}
+
+void mpuBegin() {
+  mpuSetup();
   // 전원이 막 들어온 자이로는 값이 아직 안정되지 않고, USB 를 꽂는 손에 차도 흔들림.
   // 켜자마자 기준점을 재서 가만히 있는데도 돌았음(실제 1 초에 약 10 도). 1 초 기다린 뒤 잼
   delay(1000);
@@ -235,9 +269,12 @@ int16_t mpuRawZ() {
   // 시간 초과로 포기했으면 받은 값이 없음. 0 편향 근처 값을 돌려줘 방향이 튀지 않게 함
   if (Wire.getWireTimeoutFlag() || Wire.available() < 2) {
     Wire.clearWireTimeoutFlag();
-    gyroFailed = true;
+    if (gyroBadSince == 0) gyroBadSince = millis() | 1;   // 0 은 '멀쩡함' 표시라 피함
+    gyroFailCount++;
+    mpuSetup();                              // 바로 다시 깨우고 범위를 다시 넣음
     return (int16_t)gyroBias;
   }
+  gyroBadSince = 0;
   int16_t v = (Wire.read() << 8) | Wire.read();
   return v;
 }
@@ -355,7 +392,9 @@ int applyOutputs(int speedMMS, float steerDeg) {
 void setup() {
   Serial.begin(115200);
   Wire.begin();
-  Wire.setClock(400000);
+  // 자이로와 1 초에 10 만 박자로 말함. 40 만은 선이 짧고 깨끗할 때 얘기라, 선이 길고 진동이 있는 이 차에선
+  // 약한 흔들림에도 깨졌음. 한 번 읽는 데 0.1 ms 가 0.4 ms 가 될 뿐이라 주행엔 영향 없음
+  Wire.setClock(100000);
   // 자이로가 3 ms 안에 대답 안 하면 포기하고 넘어감. 예전엔 무한히 기다려서, 선을 건드려 자이로가
   // 순간 끊기면 아두이노 전체가 얼었음 (2026-10-28 센서 멈추고 보고 0 줄). 끝의 true 는 I2C 를 초기화하라는 뜻
   Wire.setWireTimeout(3000, true);
@@ -431,6 +470,7 @@ void handCheck(unsigned long now) {
       countdownBeeps = 0;
       biasSum = 0;
       biasCount = 0;
+      biasFailStart = gyroFailCount;
     }
     return;
   }
@@ -463,7 +503,7 @@ void countdownTick(unsigned long now) {
     }
   } else if (now - countdownAt >= 1000UL * COUNTDOWN_BEEPS) {
     // 3 초면 수백 번 모임. 자이로가 끊겨 거의 못 모았으면 켤 때 잡은 기준점을 그대로 씀
-    if (biasCount > 50 && !gyroFailed) gyroBias = (float)biasSum / biasCount;
+    if (biasCount > 50 && gyroFailCount == biasFailStart) gyroBias = (float)biasSum / biasCount;
     sendGoal(HAND_GOAL_CM);
     irHasGoal = true;
     irPaused = false;
@@ -481,6 +521,7 @@ void loop() {
 
   // ---- 앞 센서: 서보가 멈춘 뒤에 잰다. 움직이면서 재면 엉뚱한 방향에 찍힌다
   unsigned long now = millis();
+  mpuCheck(now);
   if (!sweepSettled && now - sweepMovedAt >= SWEEP_SETTLE_MS) sweepSettled = true;
   if (sweepSettled) {
     frontMM = readSharp();                   // 샤프는 늘 바로 값을 준다 (ToF 처럼 '준비중'이 없다)
@@ -537,7 +578,8 @@ void loop() {
   if (irPaused) { manual = true; flags |= 4; }
   bool late = (millis() - lastCmdAt) > WATCHDOG_MS;
   if (late) flags |= 8;
-  if (gyroFailed) flags |= 16;
+  // 0.2 초 넘게 계속 끊겨 있을 때만 알림. 그보다 짧으면 놓친 회전이 1~2 도뿐이라 그냥 달림
+  if (gyroBadSince && now - gyroBadSince > GYRO_BAD_MS) flags |= 16;
 
   // 예전엔 모터를 꺼 놓고도 명령 속도를 그대로 보고해서, 파이가 서 있는 차를 가고 있다고 믿었음
   int applied = applyOutputs((late || manual) ? 0 : cmdSpeedMMS,
