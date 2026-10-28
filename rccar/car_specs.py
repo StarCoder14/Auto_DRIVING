@@ -70,6 +70,11 @@ FIRMWARE_MOTOR_MIN_PWM = 120     # 힘이 이보다 약하면 펌웨어가 모�
 # 차가 낼 수 있는 가장 빠른 속도라 주행 최고 속도도 이걸로 씀
 DRIVE_MAX_SPEED_MPS = FIRMWARE_MAX_SPEED_MPS
 
+# 자이로로 방향을 잴지. 펌웨어의 USE_GYRO 와 같아야 함.
+# 2026-10-28 자이로 판이 I2C 선을 바닥에 붙잡아 아무 대답도 못 하게 돼서 꺼 둠. 꺼 두면 방향은
+# 조향각과 간 거리로 계산함 (자전거 모형). 바퀴가 미끄러지면 틀어지므로 새 판을 달면 True 로
+USE_GYRO = False
+
 
 def small_car_settings(max_speed=DRIVE_MAX_SPEED_MPS, max_time=90.0):
     """우리 차(22 cm)와 시험장(1.5 m)에 맞춘 주행 설정. Robot(link, goal, veh=..., **이것) 으로 넘김.

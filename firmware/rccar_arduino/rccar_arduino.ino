@@ -3,7 +3,7 @@
 
   이 보드가 하는 일
     1. 서보 위에 올린 앞 거리 센서(샤프 적외선)로 좌우를 훑는다. 뒤 센서는 없다.
-    2. 자이로(MPU6050)의 z 축 각속도를 읽는다.
+    2. 자이로(MPU6050)의 z 축 각속도를 읽는다. (지금은 USE_GYRO = 0 으로 꺼 둠)
     3. 오렌지파이가 보낸 속도와 조향을 서보와 변속기에 넘긴다.
     4. 명령이 끊기면 스스로 차를 세운다.   <- 이것이 이 보드의 가장 중요한 일
 
@@ -214,6 +214,10 @@ const uint8_t GYRO_RANGE_500 = 0x08;      // GYRO_CONFIG(0x1B) 의 FS_SEL=1
 const float   GYRO_LSB_PER_DPS = 65.5;
 // 이 차의 자이로 판은 뒤집혀 달려 있어서, 위에서 봐 시계 반대로 돌렸는데 - 가 나왔음. 코드는 왼쪽(시계 반대)이 +
 const int     GYRO_DIR = -1;
+// 자이로를 쓸지. 지금은 0 (꺼 둠). 2026-10-28 자이로 판을 꽂으면 I2C 선이 바닥에 붙어 주소 1~126 이 전부 시간 초과,
+// 빼면 멀쩡했음. 판이 고장난 것으로 봄. 0 이면 자이로를 아예 안 부르고 0 도/초를 보냄.
+// 방향은 오렌지파이가 조향각과 간 거리로 계산함 (rccar/car_specs.py 의 USE_GYRO 와 같은 값이어야 함). 새 판을 달면 1 로
+const uint8_t USE_GYRO = 0;
 
 void mpuWrite(uint8_t reg, uint8_t value) {
   Wire.beginTransmission(MPU);
@@ -242,6 +246,7 @@ void mpuSetup() {
 
 // 0.5 초마다 설정이 그대로인지 봄. 혼자 다시 켜져 있으면 값이 엉뚱해도 끊김으로는 안 잡혀서 따로 확인함
 void mpuCheck(unsigned long now) {
+  if (!USE_GYRO) return;
   if (now - gyroCheckAt < GYRO_CHECK_MS) return;
   gyroCheckAt = now;
   int power = mpuRead(0x6B);
@@ -250,6 +255,7 @@ void mpuCheck(unsigned long now) {
 }
 
 void mpuBegin() {
+  if (!USE_GYRO) return;
   mpuSetup();
   // 전원이 막 들어온 자이로는 값이 아직 안정되지 않고, USB 를 꽂는 손에 차도 흔들림.
   // 켜자마자 기준점을 재서 가만히 있는데도 돌았음(실제 1 초에 약 10 도). 1 초 기다린 뒤 잼
@@ -503,7 +509,7 @@ void countdownTick(unsigned long now) {
     }
   } else if (now - countdownAt >= 1000UL * COUNTDOWN_BEEPS) {
     // 3 초면 수백 번 모임. 자이로가 끊겨 거의 못 모았으면 켤 때 잡은 기준점을 그대로 씀
-    if (biasCount > 50 && gyroFailCount == biasFailStart) gyroBias = (float)biasSum / biasCount;
+    if (USE_GYRO && biasCount > 50 && gyroFailCount == biasFailStart) gyroBias = (float)biasSum / biasCount;
     sendGoal(HAND_GOAL_CM);
     irHasGoal = true;
     irPaused = false;
@@ -515,9 +521,11 @@ void loop() {
   readSerial();
 
   // ---- 자이로 (도/초)
-  int16_t gyroRaw = mpuRawZ();
-  gyroDps = GYRO_DIR * (gyroRaw - gyroBias) / GYRO_LSB_PER_DPS;
-  if (handState == HAND_COUNTDOWN) { biasSum += gyroRaw; biasCount++; }
+  if (USE_GYRO) {
+    int16_t gyroRaw = mpuRawZ();
+    gyroDps = GYRO_DIR * (gyroRaw - gyroBias) / GYRO_LSB_PER_DPS;
+    if (handState == HAND_COUNTDOWN) { biasSum += gyroRaw; biasCount++; }
+  }
 
   // ---- 앞 센서: 서보가 멈춘 뒤에 잰다. 움직이면서 재면 엉뚱한 방향에 찍힌다
   unsigned long now = millis();

@@ -67,7 +67,8 @@ class RobotConfig:
 
 
 class Robot:
-    def __init__(self, link, goal, veh=None, cfg=None, hp=None, hc=None, ctrl=None, wait_for_goal=False):
+    def __init__(self, link, goal, veh=None, cfg=None, hp=None, hc=None, ctrl=None, wait_for_goal=False,
+                 use_gyro=None):
         from .controller import ControllerParams
         self.link = link
         self.goal = np.asarray(goal, float)
@@ -123,6 +124,9 @@ class Robot:
         self.ready = False
         # 자이로가 지금 대답을 안 하면 방향을 믿을 수 없어 멈춤. 펌웨어가 회복을 알리면 다시 감
         self.gyro_error = False
+        self.use_gyro = car_specs.USE_GYRO if use_gyro is None else use_gyro
+        # 마지막으로 아두이노에 보낸 조향각. 자이로 없이 방향을 계산할 때 씀
+        self.sent_steer = 0.0
         # 뒤 센서가 방금 잰 거리 (탈출할 때 지도 대신 이것을 믿는다)
         self.rear_m = math.inf
         self._rear_t = -1e9
@@ -145,18 +149,26 @@ class Robot:
         if not (0.0 < dt < 0.5):           # 시계가 튀면 버린다
             return
         self.manual = s.manual
-        if s.gyro_error and not self.gyro_error:
+        # 안 쓰는 자이로의 이상 표시로는 멈추지 않음
+        gyro_error = s.gyro_error and self.use_gyro
+        if gyro_error and not self.gyro_error:
             print("자이로가 대답을 안 함. 방향을 믿을 수 없어 멈춤. 회복되면 다시 감 (계속되면 자이로 선 확인)",
                   flush=True)
-        elif self.gyro_error and not s.gyro_error:
+        elif self.gyro_error and not gyro_error:
             print("자이로 회복됨. 다시 감", flush=True)
-        self.gyro_error = s.gyro_error
+        self.gyro_error = gyro_error
         self.speed = s.speed_mps
         self.last_status = s
 
         # 자세: 방향은 자이로, 거리는 아두이노가 실제로 준 속도
-        dth = math.radians(s.gyro_dps) * dt
         ds = s.speed_mps * dt
+        if self.use_gyro:
+            dth = math.radians(s.gyro_dps) * dt
+        else:
+            # 자전거 모형: 앞바퀴를 꺾은 채 ds 만큼 가면 차는 ds x tan(조향각) / 축거 만큼 돎.
+            # 핸들을 끝까지 꺾으면 작은 원, 조금 꺾으면 큰 원을 그리는 것과 같음
+            steer = float(np.clip(self.sent_steer, -self.V.max_steer, self.V.max_steer))
+            dth = ds * math.tan(steer) / self.V.wheelbase
         x, y, th = self.pose
         self.pose = np.array([x + ds * math.cos(th + 0.5 * dth),
                               y + ds * math.sin(th + 0.5 * dth),
@@ -486,6 +498,7 @@ class Robot:
     def _send(self, speed, steer):
         """아두이노로 명령을 보내고, 기록을 켰으면 그 순간을 한 줄 남김."""
         self.link.send(speed, steer)
+        self.sent_steer = steer
         if self._log is None:
             return
         s = self.last_status
