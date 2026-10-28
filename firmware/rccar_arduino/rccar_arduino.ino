@@ -72,8 +72,7 @@ const unsigned long HAND_GAP_MS = 300;
 const unsigned long HAND_START_MS = 2000;
 // 센서가 정면(0 도)을 약 1 초에 한 번 지나므로, 0.8 초면 정면에서 두 번 연달아 봤다는 뜻
 const unsigned long HAND_STOP_MS = 800;
-// 1 m 로는 기둥을 하나 피하면 거의 끝나서 2 m 로 늘림 (2026-10-28). 오렌지파이 지도는 사방 3 m 라 들어감
-const int HAND_GOAL_CM = 200;
+const int HAND_GOAL_CM = 100;
 const uint8_t COUNTDOWN_BEEPS = 3;
 
 enum HandState { HAND_WAIT, HAND_ARMED, HAND_COUNTDOWN };
@@ -131,11 +130,13 @@ const unsigned long WATCHDOG_MS = 300;  // 명령이 이 시간 안 오면 정�
 const int   MAX_SPEED_MMS = 100;
 // 뒤를 못 보면 후진 명령은 받아도 0 으로 자름. 오렌지파이 쪽도 후진을 안 보내지만 한 겹 더 막음
 const int   MAX_REV_MMS   = USE_REAR_TOF ? 450 : 0;
-const float MAX_STEER_DEG = 32.0;       // 차의 최대 조향각
+const float MAX_STEER_DEG = 32.0;       // 명령의 최대 조향각. 서보는 STEER_GAIN 배라 실제로는 48 도
 
 // 조향 서보 보정: 바퀴가 정면일 때의 서보 각도와, 1 도 꺾을 때 서보가 움직이는 양
 const float STEER_CENTER_DEG = 90.0;
-const float STEER_GAIN       = 1.0;     // 실측해서 고칠 것
+// 오렌지파이는 최대 32 도로 알고 있어 그 이상은 안 보냄. 1.5 배로 돌려 32 도 명령에 서보가 48 도 돌게 함 (2026-10-28).
+// 32 도로는 기둥을 피할 만큼 안 꺾였음. 오렌지파이 코드를 옮길 수 없어 펌웨어에서 늘림
+const float STEER_GAIN       = 1.5;
 // 방향 뒤집기. 차 뒤에서 앞을 볼 때 '왼쪽' 명령에 앞바퀴가 오른쪽으로 꺾이면 -1 로.
 // 2026-10-28 바닥 주행 기록에서 오른쪽 24~32 도를 보낼 때마다 자이로가 왼쪽으로 도는 걸 재서 -1 로 정함.
 // 이게 1 일 땐 방향을 바로잡으려 할수록 더 틀어져 차가 빙글빙글 감겨 들어갔음
@@ -605,7 +606,8 @@ void loop() {
   int applied = applyOutputs((late || manual) ? 0 : cmdSpeedMMS, appliedSteer);
   // 자이로가 없으면 준 속도와 조향각으로 도는 빠르기를 계산해 자이로 자리에 넣음 (자전거 모형).
   // 오렌지파이는 이걸 자이로 값으로 믿고 방향을 셈. 그래서 오렌지파이 코드를 안 바꿔도 방향이 맞음
-  if (!USE_GYRO) gyroDps = degrees(applied / 1000.0 * tan(radians(appliedSteer)) / WHEELBASE_M);
+  // 바퀴는 명령보다 STEER_GAIN 배 꺾이므로 그 각도로 셈
+  if (!USE_GYRO) gyroDps = degrees(applied / 1000.0 * tan(radians(STEER_GAIN * appliedSteer)) / WHEELBASE_M);
 
   // ---- 상태 보고 (50 Hz)
   if (now - lastSendAt >= SEND_PERIOD_MS) {
