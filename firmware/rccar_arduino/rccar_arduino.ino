@@ -123,7 +123,10 @@ const int   SHARP_MAX_MM = 800;        // 이보다 멀면 '없음'으로 본다
 const uint8_t SHARP_SAMPLES = 5;       // 아날로그 잡음이 커서 여러 번 읽어 중앙값을 쓴다
 
 const unsigned long WATCHDOG_MS = 300;  // 명령이 이 시간 안 오면 정지
-const int   MAX_SPEED_MMS = 1400;       // 최고 속도 제한 (시뮬레이터와 같은 1.4 m/s)
+// 모터 힘 255(끝까지)일 때 바닥에서 실제로 나는 속도. 2026-10-28 1 초씩 재 보니 57% 5 cm, 79% 7 cm, 100% 10 cm.
+// 예전엔 1400(1.4 m/s)으로 가정해서 오렌지파이가 96 cm 갔다고 믿을 때 실제로 3 cm 갔음.
+// 모터 드라이버 전원이 아두이노 5V(USB 전기)라 힘이 약함. 배터리로 옮기면 다시 잴 것. car_specs.py 와 같게
+const int   MAX_SPEED_MMS = 100;
 // 뒤를 못 보면 후진 명령은 받아도 0 으로 자름. 오렌지파이 쪽도 후진을 안 보내지만 한 겹 더 막음
 const int   MAX_REV_MMS   = USE_REAR_TOF ? 450 : 0;
 const float MAX_STEER_DEG = 32.0;       // 차의 최대 조향각
@@ -137,8 +140,12 @@ const int STEER_DIR = 1;
 // '전진' 명령에 두 바퀴가 다 뒤로 돌면 -1 로. 한쪽만 반대면 코드가 아니라 그 모터 선 두 가닥을 바꿔 꽂을 것
 const int DRIVE_DIR = 1;
 
+// 위 세 점을 이으면 힘 35(14%)쯤부터 움직이기 시작해 그 위로 힘에 비례해 빨라짐.
+// 그래서 속도를 힘으로 바꿀 때 0 이 아니라 여기서부터 계산함
+const int MOTOR_START_PWM = 35;
 // DC 모터는 아주 느린 속도에서 안 돌고 소리만 난다. 이 PWM(0~255) 아래로는 0 으로 본다.
-const int MOTOR_MIN_PWM = 60;
+// 바닥에서 36%(91)는 거의 안 움직여서 47%(120)로 올림 (예전 60 은 바퀴 띄운 기준)
+const int MOTOR_MIN_PWM = 120;
 
 // 앞 센서가 훑는 각도 (도). 시뮬레이터의 tof_sweep 과 같은 범위
 // 90 도까지 돌리면 센서가 오렌지파이 보드에 살짝씩 닿아서 75 도로 줄임 (2026-10-28). car_specs.FRONT_SENSOR 와 같게
@@ -324,8 +331,10 @@ void beepSet(bool on) {
 int applyOutputs(int speedMMS, float steerDeg) {
   steerServo.write(constrain(STEER_CENTER_DEG + STEER_DIR * STEER_GAIN * steerDeg, 0, 180));
 
-  // 속도(mm/s)를 PWM(0~255)으로. 부호가 방향.
-  int pwm = (int)((long)abs(speedMMS) * 255 / MAX_SPEED_MMS);
+  // 속도(mm/s)를 PWM(0~255)으로. 부호가 방향. 0 이 아니면 움직이기 시작하는 힘에서부터 비례
+  int pwm = 0;
+  if (speedMMS != 0)
+    pwm = MOTOR_START_PWM + (int)((long)abs(speedMMS) * (255 - MOTOR_START_PWM) / MAX_SPEED_MMS);
   pwm = constrain(pwm, 0, 255);
   if (pwm < MOTOR_MIN_PWM) pwm = 0;        // 너무 느리면 안 돌고 소리만 나므로 끈다
   if (pwm == 0) {                          // 정지

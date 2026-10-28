@@ -61,12 +61,17 @@ FRONT_SENSOR = {
     "sweep_step_deg": 15,
 }
 
-# 펌웨어의 속도 -> 모터 힘 변환. rccar_arduino.ino 의 MAX_SPEED_MMS, MOTOR_MIN_PWM 과 같아야 함
-FIRMWARE_MAX_SPEED_MPS = 1.4     # 이 속도를 보내면 모터 힘 255 (끝까지)
-FIRMWARE_MOTOR_MIN_PWM = 60      # 힘이 이보다 약하면 펌웨어가 모터를 끔
+# 펌웨어의 속도 -> 모터 힘 변환. rccar_arduino.ino 의 MAX_SPEED_MMS, MOTOR_START_PWM, MOTOR_MIN_PWM 과 같아야 함
+# 2026-10-28 바닥에서 1 초씩 잼: 힘 57% 5 cm, 79% 7 cm, 100% 10 cm. 예전엔 100% = 1.4 m/s 로 가정해서
+# 오렌지파이가 96 cm 갔다고 믿을 때 실제로는 3 cm 갔음. 모터 드라이버가 아두이노 5V(USB 전기)를 받아 힘이 약함
+FIRMWARE_MAX_SPEED_MPS = 0.10    # 이 속도를 보내면 모터 힘 255 (끝까지)
+FIRMWARE_MOTOR_START_PWM = 35    # 세 점을 이으면 힘이 이쯤(14%)부터 움직이기 시작함. 속도는 여기서부터 비례
+FIRMWARE_MOTOR_MIN_PWM = 120     # 힘이 이보다 약하면 펌웨어가 모터를 끔. 36%(91)에선 거의 안 움직였음
+# 차가 낼 수 있는 가장 빠른 속도라 주행 최고 속도도 이걸로 씀
+DRIVE_MAX_SPEED_MPS = FIRMWARE_MAX_SPEED_MPS
 
 
-def small_car_settings(max_speed=0.5, max_time=90.0):
+def small_car_settings(max_speed=DRIVE_MAX_SPEED_MPS, max_time=90.0):
     """우리 차(22 cm)와 시험장(1.5 m)에 맞춘 주행 설정. Robot(link, goal, veh=..., **이것) 으로 넘김.
 
     원래 값은 48 cm 차, 5~10 m 방 기준이었음. 그대로 쓰면 목적지 반경 45 cm 안에만 들어와도
@@ -95,8 +100,10 @@ def small_car_settings(max_speed=0.5, max_time=90.0):
 
 def min_drive_speed_mps():
     """이보다 느린 명령은 펌웨어가 모터를 꺼 버림. 그래서 주행 코드는 이보다 느리게 보내지 않음."""
-    # 255 로 나눴다 다시 곱하면서 버림이 생겨 경계에서 꺼질 수 있음. 1 을 더해 확실히 넘김
-    return (FIRMWARE_MOTOR_MIN_PWM + 1) / 255.0 * FIRMWARE_MAX_SPEED_MPS
+    # 펌웨어 변환의 거꾸로: 힘 = START + 속도 / 최고 속도 x (255 - START).
+    # 정수로 버림하며 경계에서 꺼질 수 있어 1 을 더해 확실히 넘김
+    usable = 255.0 - FIRMWARE_MOTOR_START_PWM
+    return (FIRMWARE_MOTOR_MIN_PWM + 1 - FIRMWARE_MOTOR_START_PWM) / usable * FIRMWARE_MAX_SPEED_MPS
 
 
 def _meters(name):

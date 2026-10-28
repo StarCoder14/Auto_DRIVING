@@ -338,7 +338,7 @@ class Robot:
         """멈춘 시각을 기록하고, 계속 멈춰 있으면 탈출을 시작한다."""
         self._stop_times.append(self.t)
         self._stop_times = [t for t in self._stop_times if self.t - t < 1.0]
-        if len(self._stop_times) >= 25 and abs(self.speed) < 0.05 and self.C.has_rear_sensor:
+        if len(self._stop_times) >= 25 and abs(self.speed) < 0.02 and self.C.has_rear_sensor:
             self._start_escape()
 
     # 뒤 센서가 없을 때 이만큼 계속 서 있으면 갇힌 것으로 봄 (초).
@@ -350,7 +350,8 @@ class Robot:
         if self.C.has_rear_sensor or not self.ready or self.manual or self.arrived or not self.has_goal:
             self._still_since = None
             return
-        if abs(self.speed) >= 0.05:
+        # 이 차는 원래 1 초에 4~10 cm 로 가서, 예전 기준(5 cm)이면 달리는 중에도 갇힘으로 오해함
+        if abs(self.speed) >= 0.02:
             self._still_since = None
             return
         if self._still_since is None:

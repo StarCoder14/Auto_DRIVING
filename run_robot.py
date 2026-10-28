@@ -76,7 +76,8 @@ def main():
                     help="--fake 일 때 지도 종류. arena(1.5 m 시험장, 기본) 또는 random(5~10 m 방, 예전 큰 차용)")
     ap.add_argument("--goal", type=float, nargs=2, default=None,
                     metavar=("X", "Y"), help="출발 기준 목적지 (m)")
-    ap.add_argument("--max-speed", type=float, default=0.5, help="최고 속도 (m/s). 가상 시험장 30 개를 0.5 로 확인함")
+    ap.add_argument("--max-speed", type=float, default=None,
+                    help="최고 속도 (m/s). 안 주면 차가 낼 수 있는 최고 속도(car_specs.DRIVE_MAX_SPEED_MPS, 0.10)")
     ap.add_argument("--max-time", type=float, default=90.0)
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--log", default=None, help="주행 기록 CSV 경로. 안 주면 logs/ 에 시각으로 이름을 지음")
@@ -91,7 +92,8 @@ def main():
     from rccar.robot import Robot
     has_rear = car_specs.has_rear_sensor()
     # 22 cm 차, 1.5 m 시험장에 맞춘 설정. 뒤를 못 보면 후진 경로도 만들지 않음 (car_specs 안에서 처리)
-    settings = car_specs.small_car_settings(max_speed=args.max_speed, max_time=args.max_time)
+    max_speed = car_specs.DRIVE_MAX_SPEED_MPS if args.max_speed is None else args.max_speed
+    settings = car_specs.small_car_settings(max_speed=max_speed, max_time=args.max_time)
     cfg = settings["cfg"]
     # 실제 차를 움직이는 프로그램이라 늘 잰 값을 씀. 가짜 아두이노도 같은 차로 흉내 내야 시험이 의미 있음
     veh = car_specs.vehicle_params()
