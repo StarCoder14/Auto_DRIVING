@@ -84,6 +84,10 @@ bool handMustLeave = false;
 unsigned long countdownAt = 0;
 uint8_t countdownBeeps = 0;
 unsigned long beepOffAt = 0;      // 0 이 아니면 이 시각에 부저를 끔 (delay 없이 울리려고)
+// 카운트다운 3 초 동안 자이로 값을 모아 출발 직전에 기준점을 다시 잡음.
+// 이때는 손을 치웠고 모터도 꺼져 있어 차가 확실히 가만히 있음
+long biasSum = 0;
+unsigned int biasCount = 0;
 
 // ---------------------------------------------------------------- 설정
 // 앞 거리 센서는 샤프 적외선 GP2Y0A21YK0F (아날로그, 10~80 cm). 신호선을 A0 에 꽂는다.
@@ -188,12 +192,28 @@ const unsigned long SEND_PERIOD_MS = 20;   // 50 Hz
 
 // ---------------------------------------------------------------- 자이로
 const uint8_t MPU = 0x68;
+// 자이로 범위를 ±500 도/초로 직접 정하고, 그 범위의 눈금(1 도/초당 65.5)으로 나눔.
+// 예전엔 잠자기만 풀어서 자이로가 기본 범위(±250, 눈금 131)로 일하는데 펌웨어는 ±2000 눈금(16.4)으로 나눠서
+// 도는 양이 8 배로 계산됐음 (2026-10-28 손으로 90 도 돌렸더니 663 도로 찍힘). ±250 은 부딪혀 확 돌 때 넘칠 수 있어 한 단계 넓힘
+const uint8_t GYRO_RANGE_500 = 0x08;      // GYRO_CONFIG(0x1B) 의 FS_SEL=1
+const float   GYRO_LSB_PER_DPS = 65.5;
+// 이 차의 자이로 판은 뒤집혀 달려 있어서, 위에서 봐 시계 반대로 돌렸는데 - 가 나왔음. 코드는 왼쪽(시계 반대)이 +
+const int     GYRO_DIR = -1;
+
+void mpuWrite(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(MPU);
+  Wire.write(reg); Wire.write(value);
+  Wire.endTransmission(true);
+}
 
 void mpuBegin() {
-  Wire.beginTransmission(MPU);
-  Wire.write(0x6B); Wire.write(0);          // 잠자기 해제
-  Wire.endTransmission(true);
-  // 처음 2 초 동안 가만히 두고 편향을 잰다. 이걸 빼면 차가 가만히 있어도 방향이 돈다.
+  mpuWrite(0x6B, 0);                         // 잠자기 해제
+  mpuWrite(0x1B, GYRO_RANGE_500);
+  // 전원이 막 들어온 자이로는 값이 아직 안정되지 않고, USB 를 꽂는 손에 차도 흔들림.
+  // 켜자마자 기준점을 재서 가만히 있는데도 돌았음(실제 1 초에 약 10 도). 1 초 기다린 뒤 잼
+  delay(1000);
+  // 2 초 동안 가만히 두고 편향을 잰다. 이걸 빼면 차가 가만히 있어도 방향이 돈다.
+  // 출발 카운트다운 때 한 번 더 잼 (countdownTick)
   long sum = 0;
   for (int i = 0; i < 200; i++) { sum += mpuRawZ(); delay(10); }
   gyroBias = sum / 200.0;
@@ -284,7 +304,8 @@ void readSerial() {
 void sendStatus(int appliedMMS, uint8_t flags) {
   char body[64];
   int n = snprintf(body, sizeof(body), "S,%lu,%d,%d,%d,%d,%d,%u",
-                   millis(), (int)(gyroDps * 100.0), measuredDeg * 10,
+                   // 나노의 int 는 ±32767 까지라 327 도/초를 넘으면 부호가 뒤집혀 보내짐. 끝에서 자름
+                   millis(), (int)constrain(gyroDps * 100.0, -32000.0, 32000.0), measuredDeg * 10,
                    frontMM, rearMM, appliedMMS, flags);
   Serial.print(body);
   Serial.print('*');
@@ -398,6 +419,8 @@ void handCheck(unsigned long now) {
       handState = HAND_COUNTDOWN;
       countdownAt = now;
       countdownBeeps = 0;
+      biasSum = 0;
+      biasCount = 0;
     }
     return;
   }
@@ -429,6 +452,8 @@ void countdownTick(unsigned long now) {
       countdownBeeps++;
     }
   } else if (now - countdownAt >= 1000UL * COUNTDOWN_BEEPS) {
+    // 3 초면 수백 번 모임. 자이로가 끊겨 거의 못 모았으면 켤 때 잡은 기준점을 그대로 씀
+    if (biasCount > 50 && !gyroFailed) gyroBias = (float)biasSum / biasCount;
     sendGoal(HAND_GOAL_CM);
     irHasGoal = true;
     irPaused = false;
@@ -439,8 +464,10 @@ void countdownTick(unsigned long now) {
 void loop() {
   readSerial();
 
-  // ---- 자이로 (도/초). 2000 도/초 범위 기준 눈금 16.4
-  gyroDps = (mpuRawZ() - gyroBias) / 16.4;
+  // ---- 자이로 (도/초)
+  int16_t gyroRaw = mpuRawZ();
+  gyroDps = GYRO_DIR * (gyroRaw - gyroBias) / GYRO_LSB_PER_DPS;
+  if (handState == HAND_COUNTDOWN) { biasSum += gyroRaw; biasCount++; }
 
   // ---- 앞 센서: 서보가 멈춘 뒤에 잰다. 움직이면서 재면 엉뚱한 방향에 찍힌다
   unsigned long now = millis();
