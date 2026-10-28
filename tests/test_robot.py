@@ -140,7 +140,8 @@ def test_gyro_error_blocks_start() -> None:
              for i, sweep in enumerate([0, -75, -60, 60, 75, 60])]
     st = parse_status(lines[0])
     assert st.gyro_error, "16 플래그를 자이로 이상으로 못 읽었다"
-    rb = Robot(_ScriptedLink(lines), np.array([1.0, 0.0]), cfg=RobotConfig(bounds=(-3, -3, 3, 3), grid_res=0.04))
+    rb = Robot(_ScriptedLink(lines), np.array([1.0, 0.0]), cfg=RobotConfig(bounds=(-3, -3, 3, 3), grid_res=0.04),
+               use_gyro=True)
     rb.step(0.02)
     assert rb.ready, "센서는 다 훑었는데 준비가 안 됐다 (75 도 기준 확인)"
     rb.plan_cycle()
@@ -156,6 +157,43 @@ def test_gyro_error_blocks_start() -> None:
     rb.link.lines = [_status_line(ms=2000 + 20 * 400, sweep=600, front=-1, flags=FLAG_FRONT_OK, cmd=0, gyro=0)]
     rb.step(0.02)
     assert not rb.gyro_error and rb._mode() != "gyro_error", "자이로가 회복됐는데도 이상 상태로 남음"
+
+
+def _no_gyro_robot(steer_deg, gyro_dps=0, flags=FLAG_FRONT_OK):
+    """자이로를 끈 차에 0.1 m/s 로 1 초 동안 가는 상태 줄을 넣고, 그동안 steer_deg 로 꺾었다고 침."""
+    lines = [_status_line(ms=1000 + 20 * i, sweep=0, front=-1, flags=flags, cmd=100, gyro=gyro_dps * 100)
+             for i in range(51)]
+    rb = Robot(_ScriptedLink(lines), np.array([1.0, 0.0]), cfg=RobotConfig(bounds=(-3, -3, 3, 3), grid_res=0.04),
+               use_gyro=False)
+    rb.sent_steer = math.radians(steer_deg)
+    rb.step(0.02)
+    return rb
+
+
+def test_no_gyro_straight_keeps_heading() -> None:
+    """자이로 없이 똑바로 가면, 자이로가 엉뚱한 값을 보내도 방향이 그대로다."""
+    rb = _no_gyro_robot(0.0, gyro_dps=30)
+    x, y, th = rb.pose
+    assert abs(x - 0.10) < 0.005 and abs(y) < 1e-9, f"1 초에 10 cm 가야 하는데 ({x:.3f}, {y:.3f})"
+    assert abs(th) < 1e-9, f"똑바로 갔는데 방향이 {math.degrees(th):.1f} 도 바뀜 (자이로 값을 썼음)"
+
+
+def test_no_gyro_steer_turns_by_bicycle_model() -> None:
+    """자이로 없이 왼쪽으로 꺾고 가면, 간 거리 x tan(조향각) / 축거 만큼 왼쪽으로 돈다."""
+    rb = _no_gyro_robot(20.0)
+    expected = 0.10 * math.tan(math.radians(20.0)) / rb.V.wheelbase
+    assert abs(rb.pose[2] - expected) < 0.01,         f"{math.degrees(expected):.1f} 도 돌아야 하는데 {math.degrees(rb.pose[2]):.1f} 도"
+    assert rb.pose[2] > 0 and rb.pose[1] > 0, "왼쪽으로 꺾었는데 왼쪽으로 안 감"
+    # 최대 조향각보다 크게 꺾었다고 해도 최대 조향각만큼만 돎. 펌웨어도 거기서 자름
+    big = _no_gyro_robot(80.0)
+    expected = 0.10 * math.tan(rb.V.max_steer) / rb.V.wheelbase
+    assert abs(big.pose[2] - expected) < 0.01, "최대 조향각을 넘겨 계산함"
+
+
+def test_no_gyro_ignores_gyro_error() -> None:
+    """자이로를 끄면 자이로 이상(16) 표시가 와도 멈추지 않는다."""
+    rb = _no_gyro_robot(0.0, flags=16 | FLAG_FRONT_OK)
+    assert not rb.gyro_error and rb._mode() != "gyro_error", "안 쓰는 자이로 때문에 멈춤"
 
 
 def test_fake_hardware_drive() -> None:
