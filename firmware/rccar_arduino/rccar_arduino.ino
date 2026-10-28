@@ -50,6 +50,32 @@ bool irPaused = true;
 bool irHasGoal = false;
 int irNum = 0;
 const uint8_t IR_DIGITS[10] = {0x16,0x0C,0x18,0x5E,0x08,0x1C,0x5A,0x42,0x52,0x4A};   // 0~9
+// 리모컨을 쓸지. 지금은 0 (꺼 둠). 샤프 센서 전원 잡음 때문에 수신기가 초당 수십 번 가짜 신호를 듣고,
+// 그중 가끔 섞이는 '버튼처럼 보이는 신호'가 '달리는 중 아무 버튼 = 정지' 에 걸려 차를 멋대로 세웠음
+// (2026-10-28 모터 시험이 0.1 초 만에 멈춤). 콘덴서로 잡음을 잡은 뒤 1 로 켤 것. 리모컨 코드는 그대로 둠
+const uint8_t USE_IR = 0;
+
+// ---- 손으로 출발과 정지 (리모컨 대신, 2026-10-28)
+//   기다리는 중: 센서 정면 10~15 cm 에 손을 2 초 대면 '삐' -> 손을 치우면 1 초마다 '삑' 세 번 -> 출발.
+//   달리는 중: 정면 10~15 cm 에 손(또는 장애물)이 1 초쯤 있으면 '삐이' 하고 멈춤.
+//   목적지는 그 순간 차가 보는 방향으로 HAND_GOAL_CM. 출발할 때 G 줄을 보내는 것은 리모컨과 같음
+// 샤프는 10 cm 보다 가까우면 값이 뒤집혀 못 믿고, 15 cm 보다 멀면 진짜 장애물과 헷갈려서 이 폭으로 정함
+const int HAND_MIN_MM = 100;
+const int HAND_MAX_MM = 150;
+const unsigned long HAND_START_MS = 2000;
+// 센서가 정면(0 도)을 약 1 초에 한 번 지나므로, 0.8 초면 정면에서 두 번 연달아 봤다는 뜻
+const unsigned long HAND_STOP_MS = 800;
+const int HAND_GOAL_CM = 100;
+const uint8_t COUNTDOWN_BEEPS = 3;
+
+enum HandState { HAND_WAIT, HAND_ARMED, HAND_COUNTDOWN };
+HandState handState = HAND_WAIT;
+unsigned long handSince = 0;      // 정면에서 손을 처음 본 때. 0 이면 지금 손 없음
+// 손으로 세운 뒤에는 손을 한 번 치워야 다시 셈. 세우려고 댄 손을 2 초 더 두면 다시 출발하는 일을 막음
+bool handMustLeave = false;
+unsigned long countdownAt = 0;
+uint8_t countdownBeeps = 0;
+unsigned long beepOffAt = 0;      // 0 이 아니면 이 시각에 부저를 끔 (delay 없이 울리려고)
 
 // ---------------------------------------------------------------- 설정
 // 앞 거리 센서는 샤프 적외선 GP2Y0A21YK0F (아날로그, 10~80 cm). 신호선을 A0 에 꽂는다.
@@ -304,7 +330,7 @@ void setup() {
 
   sharpBegin();
   mpuBegin();                                // 이 동안 차를 가만히 둘 것
-  IrReceiver.begin(PIN_IR, DISABLE_LED_FEEDBACK);   // LED 피드백은 D13(부저)이라 끈다
+  if (USE_IR) IrReceiver.begin(PIN_IR, DISABLE_LED_FEEDBACK);   // LED 피드백은 D13(부저)이라 끈다
   // 준비 끝 신호: 삐-삐 두 번. 켤 때 부트로더가 D13 을 깜빡여 나는 잡소리와 구별하려고 넣음.
   // 이 두 번이 들리면 자이로 영점까지 끝나 리모컨을 받을 수 있다는 뜻임
   for (uint8_t i = 0; i < 2; i++) { beepSet(true); delay(150); beepSet(false); delay(150); }
@@ -340,6 +366,62 @@ void sendIr() {
   sendLine(b, n);
 }
 
+// 부저를 ms 동안 울림. delay 로 기다리면 그동안 센서와 보고가 멈춰서, 끌 시각만 적어 두고 loop 에서 끔
+void beepFor(unsigned long ms) {
+  beepSet(true);
+  beepOffAt = millis() + ms;
+}
+
+// 센서가 새로 잴 때마다 부름. 정면(0 도)에서 잰 것만 봄.
+// ±15 도까지 보면 손바닥 가장자리가 15 도에서 멀게 잡혀 손을 치운 것으로 읽힐 수 있어서 정면만 씀
+void handCheck(unsigned long now) {
+  if (measuredDeg != 0) return;
+  bool hand = frontMM >= HAND_MIN_MM && frontMM <= HAND_MAX_MM;
+  if (!hand) {
+    handSince = 0;
+    handMustLeave = false;
+    if (handState == HAND_ARMED) {           // 손을 치웠음: 카운트다운 시작
+      handState = HAND_COUNTDOWN;
+      countdownAt = now;
+      countdownBeeps = 0;
+    }
+    return;
+  }
+  if (handMustLeave) return;
+  if (handSince == 0) handSince = now;
+  if (handState == HAND_COUNTDOWN) {          // 카운트다운 중에 손이 다시 오면 취소
+    handState = HAND_WAIT;
+    handMustLeave = true;
+    beepFor(400);
+    return;
+  }
+  if (!irPaused && now - handSince >= HAND_STOP_MS) {
+    irPaused = true;
+    handState = HAND_WAIT;
+    handMustLeave = true;
+    beepFor(400);
+  } else if (irPaused && handState == HAND_WAIT && now - handSince >= HAND_START_MS) {
+    handState = HAND_ARMED;
+    beepFor(200);
+  }
+}
+
+// 카운트다운: 1 초마다 짧게 울리고, 다 울면 출발
+void countdownTick(unsigned long now) {
+  if (handState != HAND_COUNTDOWN) return;
+  if (countdownBeeps < COUNTDOWN_BEEPS) {
+    if (now - countdownAt >= 1000UL * countdownBeeps) {
+      beepFor(100);
+      countdownBeeps++;
+    }
+  } else if (now - countdownAt >= 1000UL * COUNTDOWN_BEEPS) {
+    sendGoal(HAND_GOAL_CM);
+    irHasGoal = true;
+    irPaused = false;
+    handState = HAND_WAIT;
+  }
+}
+
 void loop() {
   readSerial();
 
@@ -352,6 +434,7 @@ void loop() {
   if (sweepSettled) {
     frontMM = readSharp();                   // 샤프는 늘 바로 값을 준다 (ToF 처럼 '준비중'이 없다)
     measuredDeg = sweepDeg;
+    handCheck(now);
     {
       sweepDeg += sweepDir;                  // 다음 방향으로
       if (sweepDeg > SWEEP_MAX_DEG) { sweepDeg = SWEEP_MAX_DEG - SWEEP_STEP_DEG; sweepDir = -SWEEP_STEP_DEG; }
@@ -374,7 +457,9 @@ void loop() {
     manual = (w > 1700);                     // 조종기 스위치를 올리면 사람이 운전
     if (manual) flags |= 4;
   }
-  if (IrReceiver.decode()) {
+  countdownTick(now);
+  if (beepOffAt && now >= beepOffAt) { beepSet(false); beepOffAt = 0; }
+  if (USE_IR && IrReceiver.decode()) {
     uint8_t c = IrReceiver.decodedIRData.command;
     if (!(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) sendIr();
     // NEC 만 받게 했더니 리모컨이 아예 안 먹어서 '해석 못 함'만 버리는 예전 규칙으로 되돌림.

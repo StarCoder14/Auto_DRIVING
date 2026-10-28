@@ -386,6 +386,20 @@ class Robot:
             return
         self._send(-self.ESCAPE_SPEED, 0.0)
 
+    def _restart_map(self):
+        """출발 신호를 받으면 지도를 비우고, 센서가 좌우를 다시 한 번 다 본 뒤에 출발하게 함.
+
+        기다리는 동안에도 지도는 계속 칠해져서, 출발시키려고 센서 앞에 댄 손이나 옆에 서 있던 사람이
+        '차 바로 앞 기둥'으로 남음. 그대로 출발하면 그 가짜 기둥 때문에 길을 못 찾음.
+        """
+        self.grid = OccupancyGrid(self.C.bounds, self.C.grid_res)
+        self.D = None
+        self.path_poses = self.path_cum = None
+        self.follower.set_path(None, None)
+        self._sweep_min, self._sweep_max = math.inf, -math.inf
+        self.ready = False
+        self._force_replan = True
+
     # ------------------------------------------------------------ 실행
     def step(self, dt):
         """시간을 dt 만큼 진행한다. 실제로는 run() 이 실시간으로 부른다."""
@@ -399,7 +413,7 @@ class Robot:
             # 리모컨으론 999 cm 까지 칠 수 있는데 지도는 출발점에서 사방 몇 m 뿐임. 지도 안쪽으로 줄임
             d = min(d, self.C.max_goal_dist())
             self.goal = np.array([x + d * math.cos(th), y + d * math.sin(th)])
-            self._force_replan = True
+            self._restart_map()
         self.t += dt
         self._check_stuck()
         if self.stuck:
