@@ -28,7 +28,8 @@ while true; do
   # 목적지 99 m 는 '아직 없음' 자리표시. 리모컨에서 숫자를 받으면 그걸로 바뀜
   # -u: 출력을 모아 두지 않고 바로 car.log 에 씀. 안 그러면 노트북에서 기록을 봐도 몇 분 늦은 내용만 보임
   # --wait-goal: 99 m 는 자리표시일 뿐이고 손 출발 신호를 받아야 달림. 켜지면 '삐이' 하고 기다림
-  python3 -u run_robot.py --port "$P" --goal 99 0 --wait-goal --max-speed 0.5 --countdown 0 --max-time 3600
+  # 최고 속도는 안 줌: car_specs 의 실측 최고 속도(1 초 10 cm)를 씀
+  python3 -u run_robot.py --port "$P" --goal 99 0 --wait-goal --countdown 0 --max-time 3600
   code=$?
   echo "$(date '+%F %T') 주행 프로그램 끝 (종료 코드 $code)"
   # 켜자마자 죽으면 (코드 오류 등) 3 초마다 다시 켜며 삑삑거림. 그래서 10 초 안에 죽었으면 30 초 쉬고 다시 해 봄.

@@ -11,6 +11,7 @@ import sys
 
 import numpy as np
 
+from rccar import car_specs
 from rccar import scenarios as S
 from rccar.fake_arduino import FakeArduino
 from rccar.link import (FLAG_FRONT_OK, FLAG_REAR_OK, encode_cmd, encode_run, parse_status,
@@ -285,8 +286,9 @@ def test_drive_log_written() -> None:
 def test_small_car_arena() -> None:
     """22 cm 차 설정으로 1.5 m 시험장 지도 0~9 번을 다 도착하고, 기둥에 안 닿아야 함."""
     from run_arena_check import drive_one
+    # 실제 차가 낼 수 있는 최고 속도로 시험함. 예전엔 0.5 m/s 였는데 바닥에서 재 보니 0.10 m/s 가 끝이었음
     for seed in range(10):
-        robot, closest, miss = drive_one(seed, 0.5)
+        robot, closest, miss = drive_one(seed, car_specs.DRIVE_MAX_SPEED_MPS)
         assert robot.arrived, f"시험장 {seed}: 도착 못 함 ({robot.end_reason})"
         assert closest > 0.0, f"시험장 {seed}: 기둥에 {-closest * 100:.1f} cm 닿음"
         assert miss < 0.12, f"시험장 {seed}: 목적지에서 {miss * 100:.1f} cm 떨어져 섬"

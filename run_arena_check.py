@@ -55,7 +55,7 @@ def main():
     ap = argparse.ArgumentParser(description="가상 1.5 m 시험장 주행 확인")
     ap.add_argument("--count", type=int, default=30)
     ap.add_argument("--seed", type=int, default=0, help="첫 지도 번호")
-    ap.add_argument("--max-speed", type=float, default=0.5)
+    ap.add_argument("--max-speed", type=float, default=car_specs.DRIVE_MAX_SPEED_MPS)
     args = ap.parse_args()
 
     arrived = touched = 0
