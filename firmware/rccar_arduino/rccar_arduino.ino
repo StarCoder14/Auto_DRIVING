@@ -135,8 +135,9 @@ const float MAX_STEER_DEG = 32.0;       // 차의 최대 조향각
 const float STEER_CENTER_DEG = 90.0;
 const float STEER_GAIN       = 1.0;     // 실측해서 고칠 것
 // 방향 뒤집기. 차 뒤에서 앞을 볼 때 '왼쪽' 명령에 앞바퀴가 오른쪽으로 꺾이면 -1 로.
-// 센서 서보가 실제로 반대였어서(2026-10-28) 조향과 구동도 servo_test.py, motor_test.py 로 확인하고 정함
-const int STEER_DIR = 1;
+// 2026-10-28 바닥 주행 기록에서 오른쪽 24~32 도를 보낼 때마다 자이로가 왼쪽으로 도는 걸 재서 -1 로 정함.
+// 이게 1 일 땐 방향을 바로잡으려 할수록 더 틀어져 차가 빙글빙글 감겨 들어갔음
+const int STEER_DIR = -1;
 // '전진' 명령에 두 바퀴가 다 뒤로 돌면 -1 로. 한쪽만 반대면 코드가 아니라 그 모터 선 두 가닥을 바꿔 꽂을 것
 const int DRIVE_DIR = 1;
 
