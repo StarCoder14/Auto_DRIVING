@@ -72,7 +72,8 @@ const unsigned long HAND_GAP_MS = 300;
 const unsigned long HAND_START_MS = 2000;
 // 센서가 정면(0 도)을 약 1 초에 한 번 지나므로, 0.8 초면 정면에서 두 번 연달아 봤다는 뜻
 const unsigned long HAND_STOP_MS = 800;
-const int HAND_GOAL_CM = 100;
+// 1 m 로는 기둥을 하나 피하면 거의 끝나서 2 m 로 늘림 (2026-10-28). 오렌지파이 지도는 사방 3 m 라 들어감
+const int HAND_GOAL_CM = 200;
 const uint8_t COUNTDOWN_BEEPS = 3;
 
 enum HandState { HAND_WAIT, HAND_ARMED, HAND_COUNTDOWN };
@@ -218,6 +219,8 @@ const int     GYRO_DIR = -1;
 // 빼면 멀쩡했음. 판이 고장난 것으로 봄. 0 이면 자이로를 아예 안 부르고 0 도/초를 보냄.
 // 방향은 오렌지파이가 조향각과 간 거리로 계산함 (rccar/car_specs.py 의 USE_GYRO 와 같은 값이어야 함). 새 판을 달면 1 로
 const uint8_t USE_GYRO = 0;
+// 축거 (m). 자이로가 꺼져 있을 때 도는 빠르기를 계산하는 데 씀. car_specs.py 의 wheelbase_cm 과 같게
+const float WHEELBASE_M = 0.15;
 
 void mpuWrite(uint8_t reg, uint8_t value) {
   Wire.beginTransmission(MPU);
@@ -377,10 +380,18 @@ int applyOutputs(int speedMMS, float steerDeg) {
 
   // 속도(mm/s)를 PWM(0~255)으로. 부호가 방향. 0 이 아니면 움직이기 시작하는 힘에서부터 비례
   int pwm = 0;
-  if (speedMMS != 0)
+  int applied = speedMMS;
+  if (speedMMS != 0) {
     pwm = MOTOR_START_PWM + (int)((long)abs(speedMMS) * (255 - MOTOR_START_PWM) / MAX_SPEED_MMS);
+    // 너무 약하면 안 돌고 소리만 나므로, 움직이는 최소 힘으로 올리고 그 힘의 속도를 보고함.
+    // 예전엔 꺼 버렸는데 건전지로 바꿔 눈금을 넓히니 오렌지파이의 최저 속도가 이 아래로 떨어져 차가 안 갔음
+    if (pwm < MOTOR_MIN_PWM) {
+      pwm = MOTOR_MIN_PWM;
+      int slowest = (int)((long)(MOTOR_MIN_PWM - MOTOR_START_PWM) * MAX_SPEED_MMS / (255 - MOTOR_START_PWM));
+      applied = speedMMS > 0 ? slowest : -slowest;
+    }
+  }
   pwm = constrain(pwm, 0, 255);
-  if (pwm < MOTOR_MIN_PWM) pwm = 0;        // 너무 느리면 안 돌고 소리만 나므로 끈다
   if (pwm == 0) {                          // 정지
     analogWrite(PIN_MOTOR_A1A, 0); analogWrite(5, 0);
     analogWrite(PIN_MOTOR_A1B, 0); analogWrite(4, 0);
@@ -391,7 +402,7 @@ int applyOutputs(int speedMMS, float steerDeg) {
     analogWrite(PIN_MOTOR_A1A, 0); analogWrite(5, 0);
     analogWrite(PIN_MOTOR_A1B, pwm); analogWrite(4, pwm);
   }
-  return pwm == 0 ? 0 : speedMMS;
+  return pwm == 0 ? 0 : applied;
 }
 
 // ---------------------------------------------------------------- 시작
@@ -590,8 +601,11 @@ void loop() {
   if (gyroBadSince && now - gyroBadSince > GYRO_BAD_MS) flags |= 16;
 
   // 예전엔 모터를 꺼 놓고도 명령 속도를 그대로 보고해서, 파이가 서 있는 차를 가고 있다고 믿었음
-  int applied = applyOutputs((late || manual) ? 0 : cmdSpeedMMS,
-                             (late || manual) ? 0.0 : cmdSteerDeg);
+  float appliedSteer = (late || manual) ? 0.0 : cmdSteerDeg;
+  int applied = applyOutputs((late || manual) ? 0 : cmdSpeedMMS, appliedSteer);
+  // 자이로가 없으면 준 속도와 조향각으로 도는 빠르기를 계산해 자이로 자리에 넣음 (자전거 모형).
+  // 오렌지파이는 이걸 자이로 값으로 믿고 방향을 셈. 그래서 오렌지파이 코드를 안 바꿔도 방향이 맞음
+  if (!USE_GYRO) gyroDps = degrees(applied / 1000.0 * tan(radians(appliedSteer)) / WHEELBASE_M);
 
   // ---- 상태 보고 (50 Hz)
   if (now - lastSendAt >= SEND_PERIOD_MS) {
