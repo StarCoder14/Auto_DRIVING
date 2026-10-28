@@ -59,9 +59,16 @@ const uint8_t USE_IR = 0;
 //   기다리는 중: 센서 정면 10~15 cm 에 손을 2 초 대면 '삐' -> 손을 치우면 1 초마다 '삑' 세 번 -> 출발.
 //   달리는 중: 정면 10~15 cm 에 손(또는 장애물)이 1 초쯤 있으면 '삐이' 하고 멈춤.
 //   목적지는 그 순간 차가 보는 방향으로 HAND_GOAL_CM. 출발할 때 G 줄을 보내는 것은 리모컨과 같음
-// 샤프는 10 cm 보다 가까우면 값이 뒤집혀 못 믿고, 15 cm 보다 멀면 진짜 장애물과 헷갈려서 이 폭으로 정함
+// 달리는 중 정지에 쓰는 폭. 샤프는 10 cm 보다 가까우면 값이 뒤집혀 못 믿고,
+// 15 cm 보다 멀면 길가의 기둥을 손으로 착각해 멋대로 설 수 있어서 이 폭으로 정함
 const int HAND_MIN_MM = 100;
 const int HAND_MAX_MM = 150;
+// 기다리는 중 출발에 쓰는 기준. 거리로 바꾸기 전 전압값(ADC)이 이보다 크면 손으로 봄.
+// 20 cm 에서 276 이었음(교정값). 10 cm 보다 가까우면 전압이 다시 내려가지만 276 보다는 높아서,
+// 센서에 바짝 붙이지만 않으면 20 cm 안 어디든 됨. 10~15 cm 만 받았더니 손을 맞추기 너무 어려웠음
+const int HAND_ADC_MIN = 276;
+// 손 판정 사이에 이만큼 짧게 끊긴 건 무시함. 정면을 0.1 초마다 재니 한 번 튄 값에 처음부터 다시 세지 않게
+const unsigned long HAND_GAP_MS = 300;
 const unsigned long HAND_START_MS = 2000;
 // 센서가 정면(0 도)을 약 1 초에 한 번 지나므로, 0.8 초면 정면에서 두 번 연달아 봤다는 뜻
 const unsigned long HAND_STOP_MS = 800;
@@ -71,6 +78,7 @@ const uint8_t COUNTDOWN_BEEPS = 3;
 enum HandState { HAND_WAIT, HAND_ARMED, HAND_COUNTDOWN };
 HandState handState = HAND_WAIT;
 unsigned long handSince = 0;      // 정면에서 손을 처음 본 때. 0 이면 지금 손 없음
+unsigned long handLastAt = 0;     // 정면에서 손을 마지막으로 본 때
 // 손으로 세운 뒤에는 손을 한 번 치워야 다시 셈. 세우려고 댄 손을 2 초 더 두면 다시 출발하는 일을 막음
 bool handMustLeave = false;
 unsigned long countdownAt = 0;
@@ -166,6 +174,7 @@ float cmdSteerDeg = 0.0;
 unsigned long lastCmdAt = 0;
 
 int   frontMM = -1, rearMM = -1;
+int   frontAdc = 0;                  // 거리로 바꾸기 전 전압값. 손 출발 판정에 씀
 float gyroDps = 0.0;
 float gyroBias = 0.0;
 // 자이로가 한 번이라도 대답을 안 했으면 true. 리셋 전까지 안 풀림 (방향을 이미 놓쳤으므로)
@@ -219,7 +228,8 @@ int readSharp() {
     for (uint8_t j = 0; j < SHARP_SAMPLES - 1 - i; j++)
       if (s[j] > s[j + 1]) { int t = s[j]; s[j] = s[j + 1]; s[j + 1] = t; }
   int adc = s[SHARP_SAMPLES / 2];
-  if (adc <= SHARP_B) return -1;             // 전압이 바닥 — 아주 멀거나 아무것도 없음
+  frontAdc = adc;
+  if (adc <= SHARP_B) return -1;            // 전압이 바닥 — 아주 멀거나 아무것도 없음
   int mm = (int)(SHARP_K / (adc - SHARP_B));
   if (mm < SHARP_MIN_MM || mm > SHARP_MAX_MM) return -1;
   return mm;
@@ -376,7 +386,11 @@ void beepFor(unsigned long ms) {
 // ±15 도까지 보면 손바닥 가장자리가 15 도에서 멀게 잡혀 손을 치운 것으로 읽힐 수 있어서 정면만 씀
 void handCheck(unsigned long now) {
   if (measuredDeg != 0) return;
-  bool hand = frontMM >= HAND_MIN_MM && frontMM <= HAND_MAX_MM;
+  // 서 있을 땐 넓게(20 cm 안 어디든), 달릴 땐 좁게(10~15 cm). 서 있을 땐 기둥을 손으로 착각해도 위험하지 않음
+  bool hand = irPaused ? (frontAdc >= HAND_ADC_MIN)
+                       : (frontMM >= HAND_MIN_MM && frontMM <= HAND_MAX_MM);
+  if (hand) handLastAt = now;
+  if (!hand && handSince != 0 && now - handLastAt < HAND_GAP_MS) return;   // 잠깐 튄 값은 무시
   if (!hand) {
     handSince = 0;
     handMustLeave = false;
@@ -435,7 +449,13 @@ void loop() {
     frontMM = readSharp();                   // 샤프는 늘 바로 값을 준다 (ToF 처럼 '준비중'이 없다)
     measuredDeg = sweepDeg;
     handCheck(now);
-    {
+    if (irPaused) {
+      // 기다리는 동안은 정면에 멈춰 둠. 좌우로 돌면 정면을 1 초에 한 번만 봐서 손을 잘 못 알아봤음.
+      // 멈춰 있으면 0.1 초마다 정면을 봄. 출발하면 다시 훑고, 파이는 한 번 다 훑은 뒤에 출발함
+      sweepDeg = 0;
+      sweepServo.write(SWEEP_CENTER_DEG);
+      sweepMovedAt = now; sweepSettled = false;
+    } else {
       sweepDeg += sweepDir;                  // 다음 방향으로
       if (sweepDeg > SWEEP_MAX_DEG) { sweepDeg = SWEEP_MAX_DEG - SWEEP_STEP_DEG; sweepDir = -SWEEP_STEP_DEG; }
       if (sweepDeg < SWEEP_MIN_DEG) { sweepDeg = SWEEP_MIN_DEG + SWEEP_STEP_DEG; sweepDir =  SWEEP_STEP_DEG; }
