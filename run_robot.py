@@ -50,6 +50,23 @@ def countdown(link, seconds, quiet=False):
         print("  출발!", flush=True)
 
 
+def announce_ready(link, quiet=False):
+    """아두이노를 '출발 기다림'으로 되돌리고, 아두이노가 말을 하기 시작하면 길게 '삐이' 한 번 울림.
+
+    프로그램이 늦게 켜지는 동안 손 출발을 하면 출발 신호가 사라짐 (2026-10-28 실제로 겪음).
+    그래서 켜질 때 기다림으로 되돌리고, 사람은 이 소리를 들은 뒤에 손 출발을 하면 됨.
+    """
+    link.run(False)
+    deadline = time.time() + 10.0
+    while time.time() < deadline and not link.poll():
+        time.sleep(0.05)
+    link.beep(True)
+    time.sleep(0.6)
+    link.beep(False)
+    if not quiet:
+        print("준비됨 (삐이). 손으로 출발시킬 것", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="실제 RC카 주행")
     ap.add_argument("--port", default=None, help="아두이노 포트. 예 /dev/ttyUSB0, COM3")
@@ -66,6 +83,8 @@ def main():
     ap.add_argument("--no-log", action="store_true", help="주행 기록을 남기지 않음")
     ap.add_argument("--countdown", type=float, default=10.0,
                     help="출발 전 삑삑 카운트다운 시간(초). 0 이면 바로 시작")
+    ap.add_argument("--wait-goal", action="store_true",
+                    help="--goal 은 자리표시로만 두고, 아두이노의 출발 신호(손 출발/리모컨)를 받아야 달림. start_car.sh 가 씀")
     args = ap.parse_args()
 
     from rccar import car_specs
@@ -99,7 +118,9 @@ def main():
         link = SerialLink(args.port)
         goal_local = np.array(args.goal, float)
 
-    rb = Robot(link, goal_local, veh=veh, **settings)
+    rb = Robot(link, goal_local, veh=veh, wait_for_goal=args.wait_goal, **settings)
+    if args.wait_goal and not args.fake:
+        announce_ready(link, quiet=args.quiet)
     log_path = None
     if not args.no_log:
         log_path = args.log

@@ -27,12 +27,16 @@ while true; do
   started=$(date +%s)
   # 목적지 99 m 는 '아직 없음' 자리표시. 리모컨에서 숫자를 받으면 그걸로 바뀜
   # -u: 출력을 모아 두지 않고 바로 car.log 에 씀. 안 그러면 노트북에서 기록을 봐도 몇 분 늦은 내용만 보임
-  python3 -u run_robot.py --port "$P" --goal 99 0 --max-speed 0.5 --countdown 0 --max-time 3600
+  # --wait-goal: 99 m 는 자리표시일 뿐이고 손 출발 신호를 받아야 달림. 켜지면 '삐이' 하고 기다림
+  python3 -u run_robot.py --port "$P" --goal 99 0 --wait-goal --max-speed 0.5 --countdown 0 --max-time 3600
   code=$?
   echo "$(date '+%F %T') 주행 프로그램 끝 (종료 코드 $code)"
-  # 켜자마자 죽으면 (코드 오류 등) 3 초마다 포트를 다시 열게 되고, 그때마다 나노가 다시 켜져 삑삑거림.
-  # 그래서 10 초 안에 죽었으면 30 초 쉬고 다시 해 봄
-  if [ $(( $(date +%s) - started )) -lt 10 ]; then
+  # 켜자마자 죽으면 (코드 오류 등) 3 초마다 다시 켜며 삑삑거림. 그래서 10 초 안에 죽었으면 30 초 쉬고 다시 해 봄.
+  # 단 USB 를 뽑아서 끝난 거면 쉬지 않음. 예전엔 업로드하려고 뽑았다 꽂는 동안 30 초를 쉬어서,
+  # 그 사이에 한 손 출발 신호가 사라졌음 (2026-10-28)
+  if [ -z "$(ls /dev/ttyUSB* 2>/dev/null)" ]; then
+    echo "$(date '+%F %T') USB 가 빠졌음. 다시 꽂히길 기다림"
+  elif [ $(( $(date +%s) - started )) -lt 10 ]; then
     echo "$(date '+%F %T') 너무 빨리 끝남. 30 초 뒤 다시 시도 (위 오류를 볼 것)"
     sleep 30
   else
