@@ -13,7 +13,7 @@ import numpy as np
 
 from rccar import scenarios as S
 from rccar.fake_arduino import FakeArduino
-from rccar.link import (FLAG_FRONT_OK, FLAG_REAR_OK, encode_cmd, parse_status,
+from rccar.link import (FLAG_FRONT_OK, FLAG_REAR_OK, encode_cmd, encode_run, parse_status,
                         _checksum)
 from rccar.robot import Robot, RobotConfig
 
@@ -58,6 +58,13 @@ def test_no_signal_means_no_range() -> None:
     """유효 플래그가 없으면 거리는 '못 맞힘'이어야 한다. 0 으로 읽으면 코앞에 벽이 생긴다."""
     st = parse_status(_status_line(flags=0))
     assert math.isinf(st.front_m) and math.isinf(st.rear_m)
+
+
+def test_run_command_format() -> None:
+    """시험용 R 명령은 펌웨어가 읽는 'R,1*검사값' 형식이어야 한다."""
+    on, off = encode_run(True).decode(), encode_run(False).decode()
+    assert on == f"R,1*{_checksum('R,1'):02X}\n", f"R 명령 형식이 다르다: {on!r}"
+    assert off.startswith("R,0*") and off.endswith("\n")
 
 
 class _ScriptedLink:
@@ -263,6 +270,7 @@ TESTS = [
     ("22 cm 차, 1.5 m 시험장 10 개", test_small_car_arena),
     ("아두이노가 조용하면 길 안 찾음", test_silent_arduino_no_planning),
     ("자이로 이상이면 출발 안 함", test_gyro_error_blocks_start),
+    ("시험용 R 명령 형식", test_run_command_format),
 ]
 
 

@@ -28,6 +28,9 @@ link.py -- 오렌지파이와 아두이노 사이의 통신
   파이 -> 아두이노   B,<on>*<검사값>      부저. 1 이면 켜고 0 이면 끈다
     출발 전 카운트다운 삑삑에 쓴다. 이 명령은 watchdog 을 건드리지 않아 정지에 영향이 없다.
 
+  파이 -> 아두이노   R,<on>*<검사값>      시험용. 1 이면 리모컨 기다림을 풀고 0 이면 다시 건다
+    motor_test.py, servo_test.py 만 쓴다. 감시 정지는 그대로 걸려 있다.
+
 검사값
   * 앞의 글자들을 XOR 한 값을 두 자리 16 진수로 적는다. 선이 흔들려 글자가 깨지면 버린다.
 
@@ -66,6 +69,12 @@ def encode_cmd(speed_mps: float, steer_rad: float) -> bytes:
 def encode_buzzer(on: bool) -> bytes:
     """부저를 켜거나 끄는 한 줄. 출발 전 카운트다운 삑삑에 쓴다."""
     body = f"B,{1 if on else 0}"
+    return f"{body}*{_checksum(body):02X}\n".encode("ascii")
+
+
+def encode_run(on: bool) -> bytes:
+    """리모컨 기다림을 풀거나(1) 다시 거는(0) 한 줄. 바퀴 띄운 시험 파일만 씀. 주행 프로그램은 안 씀."""
+    body = f"R,{1 if on else 0}"
     return f"{body}*{_checksum(body):02X}\n".encode("ascii")
 
 
@@ -118,7 +127,9 @@ def parse_status(line: str):
 class SerialLink:
     """실제 USB 시리얼. pyserial 이 필요하다 (pip install pyserial)."""
 
-    def __init__(self, port, baud=BAUD, timeout=0.02):
+    def __init__(self, port, baud=BAUD, timeout=0.02, show_ir=True):
+        # 시험 파일은 False 로 둠. 리모컨 잡음 줄이 초당 수십 개라 시험 결과가 묻힘
+        self.show_ir = show_ir
         try:
             import serial
         except ImportError as e:
@@ -131,6 +142,9 @@ class SerialLink:
 
     def beep(self, on):
         self.ser.write(encode_buzzer(on))
+
+    def run(self, on):
+        self.ser.write(encode_run(on))
 
     def poll(self):
         """지금까지 도착한 줄들을 Status 목록으로. 깨진 줄은 버린다."""
@@ -146,7 +160,8 @@ class SerialLink:
                 continue
             if line.startswith("I,"):
                 # 리모컨이 안 먹을 때 원인 찾기용. car.log 에 찍혀서 노트북에서 볼 수 있음
-                print(f"리모컨 신호 들음 (방식,주소,버튼): {line[2:].split('*')[0]}", flush=True)
+                if self.show_ir:
+                    print(f"리모컨 신호 들음 (방식,주소,버튼): {line[2:].split('*')[0]}", flush=True)
                 continue
             st = parse_status(raw.decode("ascii", "ignore"))
             if st is not None:
