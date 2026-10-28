@@ -77,6 +77,26 @@ def test_goal_restarts_map() -> None:
     assert abs(rb.goal[0] - (1.0 + rb.C.goal_tol)) < 1e-9, f"목적지 {rb.goal}"
 
 
+def test_wait_for_goal() -> None:
+    """출발 신호를 기다리는 동안은 아두이노가 '달리는 중'이어도 길을 안 찾고 서 있는다.
+    출발 신호를 놓친 채 99 m 자리표시 목적지로 헛돌다 '갇힘'으로 끝났던 일을 막음."""
+    sweeps = [0, -75, -60, 60, 75, 60]
+    lines = [_status_line(ms=1000 + 20 * i, sweep=a * 10, front=-1, flags=0, cmd=0, gyro=0)
+             for i, a in enumerate(sweeps)]
+    link = _ScriptedLink(lines)
+    cfg = RobotConfig(bounds=(-3, -3, 3, 3), grid_res=0.04)
+    rb = Robot(link, np.array([99.0, 0.0]), cfg=cfg, wait_for_goal=True)
+    for _ in range(300):                      # 6 초. 갇힘 판정 시간보다 김
+        assert rb.step(0.02), "목적지를 기다리는 중에 끝나 버렸다 (갇힘 판정?)"
+        rb.plan_cycle()
+        rb.control_cycle()
+    assert rb.stats["plans"] == 0, "출발 신호 없이 길을 찾았다"
+    assert all(v == 0.0 for v, _ in link.sent) and rb._mode() == "no_goal"
+    link.goal_cm = 50
+    rb.step(0.02)
+    assert rb.has_goal and rb._mode() != "no_goal"
+
+
 def test_run_command_format() -> None:
     """시험용 R 명령은 펌웨어가 읽는 'R,1*검사값' 형식이어야 한다."""
     on, off = encode_run(True).decode(), encode_run(False).decode()
@@ -289,6 +309,7 @@ TESTS = [
     ("자이로 이상이면 출발 안 함", test_gyro_error_blocks_start),
     ("시험용 R 명령 형식", test_run_command_format),
     ("출발 신호를 받으면 지도를 새로 시작", test_goal_restarts_map),
+    ("출발 신호 전에는 길을 안 찾음", test_wait_for_goal),
 ]
 
 

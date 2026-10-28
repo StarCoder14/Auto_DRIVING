@@ -67,10 +67,13 @@ class RobotConfig:
 
 
 class Robot:
-    def __init__(self, link, goal, veh=None, cfg=None, hp=None, hc=None, ctrl=None):
+    def __init__(self, link, goal, veh=None, cfg=None, hp=None, hc=None, ctrl=None, wait_for_goal=False):
         from .controller import ControllerParams
         self.link = link
         self.goal = np.asarray(goal, float)
+        # 자동 시작은 목적지를 99 m 자리표시로 두고 아두이노의 출발 신호(G 줄)를 기다림.
+        # 이게 없을 땐 출발 신호를 놓치면 자리표시 목적지로 길을 찾느라 헛돌다 '갇힘'으로 끝났음 (2026-10-28)
+        self.has_goal = not wait_for_goal
         self.V = veh or VehicleParams()
         self.C = cfg or RobotConfig()
         self.HP = hp or HybridParams(allow_reverse=True)
@@ -221,7 +224,7 @@ class Robot:
         # 지도 밖 목적지로 길을 찾느라 한 번에 몇 초씩 걸려 프로그램 전체가 느려졌음. 지도는 계속 쌓임
         # 아두이노가 아직 아무 말도 안 했을 때(켜지는 중, 얼어붙음)도 manual 을 모르니 안 찾음.
         # 2026-10-28 아두이노가 얼었을 때 이게 없어서 보드가 96% 힘으로 99 m 길을 찾고 있었음
-        if self.manual or not self.ready or self.gyro_error:
+        if self.manual or not self.ready or self.gyro_error or not self.has_goal:
             return
         self.D = distance_field(self.grid.occupied_mask(), self.grid.res,
                                 self.HC.field_cap)
@@ -272,7 +275,8 @@ class Robot:
     # ------------------------------------------------------------ 추종
     def control_cycle(self):
         """50 Hz. 속도와 조향을 정해 아두이노로 보낸다."""
-        if self.arrived or self.manual or not self.ready or self.D is None or self.gyro_error:
+        if (self.arrived or self.manual or not self.ready or self.D is None or self.gyro_error
+                or not self.has_goal):
             self._send(0.0, 0.0)
             return
         if self._escape is not None:
@@ -343,7 +347,7 @@ class Robot:
     STUCK_SECONDS = 5.0
 
     def _check_stuck(self):
-        if self.C.has_rear_sensor or not self.ready or self.manual or self.arrived:
+        if self.C.has_rear_sensor or not self.ready or self.manual or self.arrived or not self.has_goal:
             self._still_since = None
             return
         if abs(self.speed) >= 0.05:
@@ -413,6 +417,7 @@ class Robot:
             # 리모컨으론 999 cm 까지 칠 수 있는데 지도는 출발점에서 사방 몇 m 뿐임. 지도 안쪽으로 줄임
             d = min(d, self.C.max_goal_dist())
             self.goal = np.array([x + d * math.cos(th), y + d * math.sin(th)])
+            self.has_goal = True
             self._restart_map()
         self.t += dt
         self._check_stuck()
@@ -459,6 +464,8 @@ class Robot:
     def _mode(self):
         if self.gyro_error:
             return "gyro_error"
+        if not self.has_goal:
+            return "no_goal"
         if self.manual:
             return "manual"
         if self.stuck:
