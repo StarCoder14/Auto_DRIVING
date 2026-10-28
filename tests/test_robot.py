@@ -60,6 +60,23 @@ def test_no_signal_means_no_range() -> None:
     assert math.isinf(st.front_m) and math.isinf(st.rear_m)
 
 
+def test_goal_restarts_map() -> None:
+    """출발 신호(G 줄)를 받으면 기다리는 동안 칠한 지도를 지우고, 좌우를 다시 다 본 뒤 출발한다.
+    손으로 출발시키면 센서 앞에 댄 손이 '차 코앞 기둥'으로 남기 때문."""
+    sweeps = [0, -75, -60, 60, 75, 60]
+    lines = [_status_line(ms=1000 + 20 * i, sweep=a * 10, front=120, flags=FLAG_FRONT_OK, cmd=0, gyro=0)
+             for i, a in enumerate(sweeps)]
+    link = _ScriptedLink(lines)
+    rb = Robot(link, np.array([99.0, 0.0]), cfg=RobotConfig(bounds=(-3, -3, 3, 3), grid_res=0.04))
+    rb.step(0.02)
+    assert rb.ready and rb.grid.occupied_mask().any(), "기다리는 동안 본 것이 지도에 있어야 함"
+    link.goal_cm = 100
+    rb.step(0.02)
+    assert not rb.ready, "출발 신호 뒤에도 예전 훑기로 바로 출발하려 함"
+    assert not rb.grid.occupied_mask().any(), "출발 신호 뒤에도 기다리는 동안 본 손이 지도에 남음"
+    assert abs(rb.goal[0] - (1.0 + rb.C.goal_tol)) < 1e-9, f"목적지 {rb.goal}"
+
+
 def test_run_command_format() -> None:
     """시험용 R 명령은 펌웨어가 읽는 'R,1*검사값' 형식이어야 한다."""
     on, off = encode_run(True).decode(), encode_run(False).decode()
@@ -271,6 +288,7 @@ TESTS = [
     ("아두이노가 조용하면 길 안 찾음", test_silent_arduino_no_planning),
     ("자이로 이상이면 출발 안 함", test_gyro_error_blocks_start),
     ("시험용 R 명령 형식", test_run_command_format),
+    ("출발 신호를 받으면 지도를 새로 시작", test_goal_restarts_map),
 ]
 
 
