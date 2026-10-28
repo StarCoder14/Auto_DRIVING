@@ -35,11 +35,15 @@ def main():
     speed = float(sys.argv[2]) if len(sys.argv) > 2 else 0.5   # m/s
     dur = float(sys.argv[3]) if len(sys.argv) > 3 else 3.0     # 초
 
-    link = SerialLink(port)
+    link = SerialLink(port, show_ir=False)
     print(f"[{port}] {speed} m/s 를 {dur}초 동안 50 Hz 로 보낸다. 중단은 Ctrl+C.")
     print("바퀴 띄웠는지 확인!  (applied=실제 모터에 준 mm/s)")
+    print("차 뒤에서 앞을 볼 때 두 바퀴가 다 앞으로 구르면 맞음.")
+    print("  둘 다 뒤로 -> 펌웨어 DRIVE_DIR = -1 / 한쪽만 반대 -> 그 모터 선 두 가닥을 바꿔 꽂기")
     print("-" * 56)
 
+    # 펌웨어는 켜지면 리모컨을 기다리며 모터를 막아 둠. 시험 동안만 풀어 줌
+    link.run(True)
     t0 = time.time()
     last_print = 0.0
     try:
@@ -57,6 +61,7 @@ def main():
     except KeyboardInterrupt:
         print("\n사용자 중단")
     finally:
+        link.run(False)
         link.close()                         # 정지(C,0,0) 보내고 포트 닫음
         print("-" * 56)
         print("정지 명령 보내고 종료.")

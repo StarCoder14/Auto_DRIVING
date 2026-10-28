@@ -93,6 +93,11 @@ const float MAX_STEER_DEG = 32.0;       // 차의 최대 조향각
 // 조향 서보 보정: 바퀴가 정면일 때의 서보 각도와, 1 도 꺾을 때 서보가 움직이는 양
 const float STEER_CENTER_DEG = 90.0;
 const float STEER_GAIN       = 1.0;     // 실측해서 고칠 것
+// 방향 뒤집기. 차 뒤에서 앞을 볼 때 '왼쪽' 명령에 앞바퀴가 오른쪽으로 꺾이면 -1 로.
+// 센서 서보가 실제로 반대였어서(2026-10-28) 조향과 구동도 servo_test.py, motor_test.py 로 확인하고 정함
+const int STEER_DIR = 1;
+// '전진' 명령에 두 바퀴가 다 뒤로 돌면 -1 로. 한쪽만 반대면 코드가 아니라 그 모터 선 두 가닥을 바꿔 꽂을 것
+const int DRIVE_DIR = 1;
 
 // DC 모터는 아주 느린 속도에서 안 돌고 소리만 난다. 이 PWM(0~255) 아래로는 0 으로 본다.
 const int MOTOR_MIN_PWM = 60;
@@ -212,6 +217,13 @@ void handleLine(char* line) {
     if (sscanf(line, "B,%d", &on) == 1) beepSet(on != 0);
     return;                                                // 부저는 lastCmdAt 을 건드리지 않는다
   }                                                        // (삑삑 소리가 watchdog 정지를 막으면 안 됨)
+  if (line[0] == 'R') {
+    // 시험용: R,1 이면 리모컨 기다림을 풀고 R,0 이면 다시 걺. motor_test.py, servo_test.py 만 씀.
+    // 리모컨이 안 될 때도 바퀴 방향을 시험하려고 넣음. 감시 정지(0.3 초)는 그대로라 안전함
+    int on;
+    if (sscanf(line, "R,%d", &on) == 1) irPaused = (on == 0);
+    return;
+  }
   if (line[0] != 'C') return;
   int sp; int st;
   if (sscanf(line, "C,%d,%d", &sp, &st) != 2) return;
@@ -253,7 +265,7 @@ void beepSet(bool on) {
 // ---------------------------------------------------------------- 출력
 // 돌려주는 값은 모터에 실제로 준 속도(mm/s). 너무 느려서 모터를 껐으면 0 을 돌려줌
 int applyOutputs(int speedMMS, float steerDeg) {
-  steerServo.write(constrain(STEER_CENTER_DEG + STEER_GAIN * steerDeg, 0, 180));
+  steerServo.write(constrain(STEER_CENTER_DEG + STEER_DIR * STEER_GAIN * steerDeg, 0, 180));
 
   // 속도(mm/s)를 PWM(0~255)으로. 부호가 방향.
   int pwm = (int)((long)abs(speedMMS) * 255 / MAX_SPEED_MMS);
@@ -262,7 +274,7 @@ int applyOutputs(int speedMMS, float steerDeg) {
   if (pwm == 0) {                          // 정지
     analogWrite(PIN_MOTOR_A1A, 0); analogWrite(5, 0);
     analogWrite(PIN_MOTOR_A1B, 0); analogWrite(4, 0);
-  } else if (speedMMS > 0) {               // 전진
+  } else if (speedMMS * DRIVE_DIR > 0) {   // 전진 (DRIVE_DIR 가 -1 이면 핀 쪽으로는 후진 출력)
     analogWrite(PIN_MOTOR_A1A, pwm); analogWrite(5, pwm);
     analogWrite(PIN_MOTOR_A1B, 0); analogWrite(4, 0);
   } else {                                 // 후진
