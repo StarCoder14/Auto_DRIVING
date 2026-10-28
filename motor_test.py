@@ -48,6 +48,9 @@ def main():
     last_print = 0.0
     try:
         while time.time() - t0 < dur:
+            # 리모컨 잡음이 '아무 버튼 = 정지' 로 읽혀 기다림이 다시 걸리므로 매번 다시 풂.
+            # 모터가 돌기 시작하자 잡음이 늘어 첫 0.1 초 만에 멈췄음 (2026-10-28)
+            link.run(True)
             link.send(speed, 0.0)            # 조향 0, 전진만. 50 Hz 로 계속 보냄
             now = time.time()
             for st in link.poll():
