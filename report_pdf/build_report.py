@@ -81,7 +81,9 @@ def body_html(markdown_text):
         if stripped.startswith("!["):
             caption, path = re.match(r"!\[(.*)\]\((.*)\)", stripped).groups()
             image = (ROOT / path).as_uri()
-            out.append(f'<figure><img src="{image}"><figcaption>{inline(caption)}</figcaption></figure>')
+            # QR 코드는 사진처럼 크게 넣으면 쪽만 차지해서 작게 넣음
+            size = ' class="qr"' if Path(path).name.startswith("qr_") else ""
+            out.append(f'<figure{size}><img src="{image}"><figcaption>{inline(caption)}</figcaption></figure>')
         elif stripped.startswith("- "):
             items = []
             while index < len(lines) and lines[index].strip().startswith("- "):
@@ -125,7 +127,7 @@ def cover_html(title):
 <section class="cover">
   <div class="term">2026학년도 2학기 자산어보 창의융합 프로젝트</div>
   <div class="bar" style="top:143pt"></div>
-  <div class="title-box"><div>{html.escape(title)}</div></div>
+  <div class="title-box"><div>{html.escape(title).replace(" 경로 탐색", "<br>경로 탐색")}</div></div>
   <div class="bar" style="top:296pt"></div>
   <img class="logo" src="{logo}">
   <div class="team">{html.escape(TEAM_NAME)}</div>
@@ -152,7 +154,7 @@ body { margin: 0; font-family: "HanBatang", "Batang", serif; font-size: 11pt; li
 .cover .bar { position: absolute; left: 85pt; width: 468pt; height: 10pt; background: #000080; }
 .cover .title-box { position: absolute; left: 85pt; top: 180pt; width: 468pt; height: 89pt;
                     background: #AEF6F6; display: flex; align-items: center; justify-content: center;
-                    text-align: center; padding: 0 18pt; font-size: 21pt; line-height: 1.35; }
+                    text-align: center; padding: 0 12pt; font-size: 18pt; line-height: 1.45; }
 .cover .logo { position: absolute; left: 259pt; top: 416pt; width: 120pt; height: 120pt; }
 .cover .team { position: absolute; left: 85pt; width: 468pt; top: 598pt; text-align: center; font-size: 20pt; }
 .cover .members { position: absolute; left: 85pt; width: 468pt; top: 655pt; text-align: center;
@@ -187,6 +189,7 @@ tr { break-inside: avoid; }
 figure { margin: 8pt 0 14pt; text-align: center; break-inside: avoid; }
 figure img { width: 88%; }
 figcaption { font-size: 9.5pt; line-height: 1.45; margin-top: 4pt; }
+figure.qr img { width: 32mm; }
 .reference { padding-left: 18pt; text-indent: -18pt; text-align: left; }
 """
 
