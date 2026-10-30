@@ -23,7 +23,7 @@ EDGE = Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
 
 TEAM_NAME = "Tesla"
 # 표지에 학번 이름 순서로 한 줄씩 들어감
-MEMBERS = ["학번 이름", "학번 이름", "학번 이름"]
+MEMBERS = ["10216 김기태", "10221 신유찬", "10230 한지운"]
 DATE_TEXT = "2026년 11월"
 
 ROMAN = {"I": "Ⅰ", "II": "Ⅱ", "III": "Ⅲ", "IV": "Ⅳ"}
