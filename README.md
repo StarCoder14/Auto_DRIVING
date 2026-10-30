@@ -3,7 +3,7 @@
 출발 전에 지도를 받지 않고, 달리면서 거리 센서로 지도를 만들어 가며 목적지까지 가는 RC카.
 원과 접선의 기하 모델에서 출발해 하이브리드 A\*까지 발전시켰고, 시뮬레이터와 실제 차(Orange Pi 5 + Arduino Nano)가 같은 코드를 쓴다.
 
-**코드 보고서: [docs/CODE_REPORT.md](docs/CODE_REPORT.md)** (구조, 변천사, 실제 차로 옮기며 고친 코드)
+**코드 보고서: [docs/CODE_REPORT.md](docs/CODE_REPORT.md)** (구조, 변천사, 실제 차로 옮기며 고친 코드) / **1쪽 요약: [docs/CODE_SUMMARY.md](docs/CODE_SUMMARY.md)**
 
 > 아래는 시뮬레이터를 만들던 때(라이다 기준) 쓴 설명이다. 실제 차는 서보로 훑는 적외선 거리 센서 한 개를 쓴다.
 
