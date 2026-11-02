@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>자율주행 알고리즘 변천사</title>
+<style>
+  :root{
+    --bg:#0a0e17;
+    --panel:#121826;
+    --line:#222c40;
+    --ink:#e6e9ef;
+    --dim:#8a93a6;
+    --orange:#ff9a3c;
+    --red:#ff6b6b;
+    --yellow:#f2cc60;
+    --blue:#5b9dff;
+    --green:#7ee787;
+    --cyan:#56d4c4;
+    --mono:'Consolas','D2Coding',ui-monospace,monospace;
+    --kr:'Malgun Gothic','맑은 고딕',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--mono),var(--kr);overflow:hidden}
+
+  .bgcode{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:0;color:#141c2b;font-weight:700}
+  .bgcode span{position:absolute;white-space:nowrap}
+
+  .deck{position:relative;width:100vw;height:100vh;z-index:1}
+  .slide{
+    position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+    padding:clamp(22px,4vw,64px) clamp(28px,4.8vw,80px);
+    gap:clamp(8px,1.5vh,15px);
+  }
+  .slide.active{display:flex}
+
+  .tag{font-size:clamp(12px,1.5vw,19px);color:var(--dim);letter-spacing:.03em}
+  .tag b{color:var(--cyan);font-weight:700}
+  h1{font-size:clamp(28px,4.4vw,52px);line-height:1.16;font-weight:800;letter-spacing:-.01em}
+  h2{font-size:clamp(20px,2.7vw,33px);line-height:1.22;font-weight:800;overflow-wrap:anywhere}
+  .lead{font-family:var(--kr);font-size:clamp(15px,1.9vw,23px);line-height:1.5;color:#c7cedb;max-width:34em}
+  .small{font-size:clamp(12px,1.45vw,18px);color:var(--dim);font-family:var(--kr)}
+  .orange{color:var(--orange)}.red{color:var(--red)}.yellow{color:var(--yellow)}
+  .blue{color:var(--blue)}.green{color:var(--green)}.cyan{color:var(--cyan)}
+  .mono{font-family:var(--mono)}
+  .byline{font-family:var(--kr);color:var(--dim);font-size:clamp(14px,1.7vw,22px)}
+
+  .logo{font-size:clamp(30px,6vw,76px);font-weight:800;letter-spacing:.02em;line-height:1.05}
+  .logo .hl{color:var(--yellow)}
+
+  /* 가로 2단 */
+  .split{display:flex;gap:clamp(16px,2.5vw,36px);align-items:center}
+  .split>*{flex:1 1 0;min-width:0}
+
+  figure{margin:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+  svg{width:100%;height:auto;max-height:42vh;display:block}
+  .figcap{font-family:var(--kr);font-size:clamp(11px,1.3vw,16px);color:var(--dim);text-align:center}
+
+  pre.code{
+    font-family:var(--mono);font-size:clamp(11px,1.25vw,16px);line-height:1.55;
+    background:#0d1320;border:1px solid var(--line);border-radius:10px;
+    padding:clamp(12px,1.6vw,20px);color:#c7cedb;overflow:auto;white-space:pre;
+  }
+  .code .c{color:var(--dim)}
+  .code .k{color:var(--blue)}
+  .code .n{color:var(--yellow)}
+  .code .g{color:var(--green)}
+
+  .limit{
+    font-family:var(--kr);font-size:clamp(13px,1.6vw,20px);line-height:1.45;
+    border-left:3px solid var(--red);padding-left:14px;color:#e2c7c7;max-width:34em;
+  }
+  .concl{
+    font-family:var(--kr);font-size:clamp(14px,1.75vw,22px);line-height:1.5;
+    border-left:3px solid var(--yellow);padding-left:16px;color:#dbe1ec;max-width:34em;
+  }
+  .win{
+    display:inline-flex;align-items:baseline;gap:10px;font-weight:800;
+    font-size:clamp(18px,2.6vw,34px);
+  }
+  .win .arrow{color:var(--dim);font-weight:400}
+
+  .cards{display:flex;gap:clamp(12px,1.8vw,22px);flex-wrap:wrap}
+  .card{
+    flex:1 1 0;min-width:180px;border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:clamp(14px,1.8vw,24px);display:flex;flex-direction:column;gap:9px;
+  }
+  .card .n{font-size:clamp(18px,2.4vw,30px);font-weight:800}
+  .card .t{font-family:var(--kr);font-size:clamp(13px,1.6vw,20px);line-height:1.45;color:#c7cedb}
+  .card.hot{border-color:var(--green);box-shadow:0 0 0 1px var(--green) inset}
+
+  ul.plain{list-style:none;display:flex;flex-direction:column;gap:clamp(7px,1.3vh,14px)}
+  ul.plain li{font-family:var(--kr);font-size:clamp(13px,1.7vw,22px);line-height:1.4;padding-left:1.5em;position:relative;color:#d3d9e4}
+  ul.plain li::before{content:'>';position:absolute;left:0;color:var(--cyan);font-family:var(--mono)}
+  ul.bug li::before{content:'x';color:var(--red)}
+
+  .hud{position:fixed;left:0;right:0;bottom:clamp(12px,2.2vh,26px);display:flex;align-items:center;justify-content:center;gap:16px;z-index:5;font-size:14px;color:var(--dim);font-family:var(--mono)}
+  .dots{display:flex;gap:7px}
+  .dots b{width:8px;height:8px;border-radius:50%;background:#2b3444;cursor:pointer;transition:.2s}
+  .dots b.on{background:var(--yellow);transform:scale(1.25)}
+  .nav{position:fixed;top:0;bottom:0;width:16%;z-index:4;cursor:pointer;background:transparent}
+  .nav.left{left:0}.nav.right{right:0}
+  .counter{font-variant-numeric:tabular-nums}
+  .hint{position:fixed;right:clamp(14px,2vw,26px);top:clamp(12px,2vh,22px);color:#3a4454;font-size:13px;z-index:5;font-family:var(--kr)}
+</style>
+</head>
+<body>
+<div class="bgcode" id="bgcode"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 제목 -->
+  <section class="slide active">
+    <div class="tag">// 창의융합 프로젝트 · 팀 Tesla</div>
+    <div class="logo">지도 없이 길을 찾는<br><span class="hl">자율주행</span></div>
+    <h1 style="font-size:clamp(18px,2.3vw,30px);font-weight:600;color:#c7cedb">학교에서 배운 수학으로 시작한 알고리즘이,<br>어떻게 진화했나</h1>
+    <div class="byline">팀 Tesla</div>
+  </section>
+
+  <!-- 2 문제 -->
+  <section class="slide">
+    <div class="tag">// 00 &nbsp;<b>무슨 문제냐면</b></div>
+    <h2>지도가 없다. 센서로 보이는 것뿐이다.</h2>
+    <div class="split">
+      <div class="lead">
+        안개 낀 벌판을 걷는 사람과 같다. 방향은 알지만 앞은 몇 미터만 보인다. 완벽한 경로를 한 번에 못 짠다.
+        <div class="concl" style="margin-top:14px">보이는 데까지 계획해 조금 가고, 새로 보이면 다시 계획하고, 또 조금 간다. <span class="cyan">1초에 열 번.</span></div>
+      </div>
+      <figure>
+        <svg viewBox="0 0 440 300" role="img" aria-label="센서로 보이는 범위">
+          <defs><radialGradient id="fog" cx="22%" cy="78%" r="80%">
+            <stop offset="0%" stop-color="#1a2335" stop-opacity="0"/>
+            <stop offset="55%" stop-color="#0a0e17" stop-opacity="0"/>
+            <stop offset="100%" stop-color="#0a0e17"/>
+          </radialGradient></defs>
+          <!-- 센서 부채꼴 -->
+          <path d="M90 230 L300 120 A235 235 0 0 0 150 70 Z" fill="#5b9dff" opacity="0.12"/>
+          <path d="M90 230 L300 120 M90 230 L150 70" stroke="#5b9dff" stroke-width="1.5" opacity="0.5"/>
+          <!-- 차 -->
+          <rect x="78" y="218" width="26" height="16" rx="3" fill="#5b9dff" transform="rotate(-24 91 226)"/>
+          <text x="84" y="258" fill="#5b9dff" font-size="14" font-family="'Malgun Gothic'">차</text>
+          <!-- 보이는 장애물 -->
+          <circle cx="235" cy="135" r="20" fill="#ff9a3c" opacity="0.85"/>
+          <!-- 안 보이는 장애물 (안개 속) -->
+          <circle cx="350" cy="95" r="22" fill="#ff9a3c" opacity="0.22"/>
+          <!-- 목적지 -->
+          <circle cx="395" cy="70" r="7" fill="#7ee787"/>
+          <text x="372" y="60" fill="#7ee787" font-size="14" font-family="'Malgun Gothic'">목적지</text>
+          <rect x="0" y="0" width="440" height="300" fill="url(#fog)"/>
+        </svg>
+        <div class="figcap">센서에 들어온 것만 알고, 나머지는 안개다</div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 3 1단계 판별식 -->
+  <section class="slide">
+    <div class="tag">// 01 &nbsp;<b>1단계 — 학교에서 배운 판별식으로 시작</b></div>
+    <h2>직선이 원을 지나는가? <span class="yellow">공통수학2 판별식</span></h2>
+    <div class="split">
+      <figure>
+        <svg viewBox="0 0 440 280" role="img" aria-label="판별식으로 직선-원 판정">
+          <!-- 장애물 원 -->
+          <circle cx="230" cy="150" r="58" fill="#ff9a3c" opacity="0.18" stroke="#ff9a3c" stroke-width="2"/>
+          <!-- 막히는 직선 (관통) -->
+          <line x1="55" y1="235" x2="400" y2="70" stroke="#ff6b6b" stroke-width="3"/>
+          <!-- 수선의 발 -->
+          <line x1="230" y1="150" x2="196" y2="188" stroke="#ff6b6b" stroke-width="1.3" stroke-dasharray="4 4"/>
+          <circle cx="196" cy="188" r="4" fill="#ff6b6b"/>
+          <!-- 비켜가는 접선 경로 -->
+          <path d="M55 235 Q150 215 185 196 A58 58 0 0 1 285 110 Q350 92 400 70" fill="none" stroke="#f2cc60" stroke-width="3" stroke-dasharray="2 6"/>
+          <!-- 점 -->
+          <circle cx="55" cy="235" r="6" fill="#5b9dff"/><text x="30" y="250" fill="#5b9dff" font-size="13" font-family="'Malgun Gothic'">출발</text>
+          <circle cx="400" cy="70" r="6" fill="#7ee787"/><text x="378" y="60" fill="#7ee787" font-size="13" font-family="'Malgun Gothic'">목적</text>
+          <text x="250" y="205" fill="#ff6b6b" font-size="15" font-weight="800">D &gt; 0 막힘</text>
+          <text x="300" y="150" fill="#f2cc60" font-size="14" font-weight="700">비켜 감</text>
+        </svg>
+        <div class="figcap">직선이 원을 뚫으면 접선으로 돌아간다</div>
+      </figure>
+      <div style="display:flex;flex-direction:column;gap:12px">
+<pre class="code"><span class="c"># 직선의 식을 원에 대입 -> 이차방정식</span>
+D = lin*lin - <span class="n">4</span>*quad*const
+<span class="k">if</span> D &lt;= <span class="n">0</span>: <span class="k">return</span> <span class="k">False</span>  <span class="c"># 안 지남</span>
+
+<span class="c"># 직선은 무한히 길다. 선분 위일 때만 진짜 충돌</span>
+foot = foot_of_perpendicular(center, line)
+<span class="k">return</span> is_between(foot, start, end)</pre>
+        <div class="limit">한계: 부풀린 원끼리 <b>겹치면</b> 접선이 옆 원을 뚫는다. 1000개 중 19개 실패(전부 겹친 배치), 벽 앞에선 좌우로 <span class="red">57번</span> 진동.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 2단계 접선 그래프 -->
+  <section class="slide">
+    <div class="tag">// 02 &nbsp;<b>2단계 — 접점을 노선도로, A*로 최단경로</b></div>
+    <h2>원 하나씩 말고, <span class="cyan">지하철 노선도</span>처럼</h2>
+    <div class="split">
+      <figure>
+        <svg viewBox="0 0 440 280" role="img" aria-label="접선 그래프와 A star 경로">
+          <circle cx="150" cy="175" r="46" fill="#ff9a3c" opacity="0.16" stroke="#ff9a3c" stroke-width="1.6"/>
+          <circle cx="300" cy="120" r="46" fill="#ff9a3c" opacity="0.16" stroke="#ff9a3c" stroke-width="1.6"/>
+          <!-- 후보 노선 (회색) -->
+          <g stroke="#3a4760" stroke-width="1.2">
+            <line x1="40" y1="245" x2="130" y2="130"/><line x1="40" y1="245" x2="110" y2="210"/>
+            <line x1="188" y1="150" x2="262" y2="98"/><line x1="170" y1="130" x2="300" y2="74"/>
+            <line x1="340" y1="155" x2="405" y2="60"/><line x1="330" y1="95" x2="405" y2="60"/>
+          </g>
+          <!-- 노드 (접점) -->
+          <g fill="#79c0ff">
+            <circle cx="130" cy="130" r="4"/><circle cx="110" cy="210" r="4"/>
+            <circle cx="188" cy="150" r="4"/><circle cx="170" cy="130" r="4"/>
+            <circle cx="262" cy="98" r="4"/><circle cx="340" cy="155" r="4"/>
+          </g>
+          <!-- 선택 경로 (노랑 굵게): 출발 - 원1 접선/호 - 원2 - 목적 -->
+          <path d="M40 245 L130 130 A46 46 0 0 1 188 150 L262 98 A46 46 0 0 1 340 95 L405 60"
+                fill="none" stroke="#f2cc60" stroke-width="3.5"/>
+          <circle cx="40" cy="245" r="6" fill="#5b9dff"/><text x="18" y="262" fill="#5b9dff" font-size="13" font-family="'Malgun Gothic'">출발</text>
+          <circle cx="405" cy="60" r="6" fill="#7ee787"/><text x="384" y="50" fill="#7ee787" font-size="13" font-family="'Malgun Gothic'">목적</text>
+        </svg>
+        <div class="figcap">접점 = 역, 접선·호 = 노선. 그 위에서 A* 최단경로</div>
+      </figure>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="lead" style="font-size:clamp(14px,1.7vw,21px)">충돌 검사를 미리 다 하면 한 번 계획에 2초가 넘었다. 그래서 <b class="cyan">A*가 그 노선을 실제로 꺼낼 때만</b> 검사했다.</div>
+<pre class="code"><span class="k">while</span> 열린큐:
+    노드 = 큐에서_꺼냄()      <span class="c"># 비용 작은 것부터</span>
+    <span class="k">if</span> 부딪힘(노드): <span class="k">continue</span>  <span class="c"># 이때 처음 검사</span></pre>
+        <div class="win"><span class="red">2,253 ms</span><span class="arrow">→</span><span class="green">24 ms</span>&nbsp;<span class="small">결과는 소수점까지 동일</span></div>
+        <div class="limit">한계: 차가 실제로 못 그리는 꺾임이 나오고, 최소 회전 반경과 통로 폭을 동시에 못 다룬다.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 작은 교훈 -->
+  <section class="slide">
+    <div class="tag">// 02-b &nbsp;<b>가다 만난 작은 교훈 — 후진을 어떻게 막나</b></div>
+    <h2>금지도, 약한 벌점도 실패했다</h2>
+    <div class="small">탐색이 차의 방향을 몰라 자꾸 뒤로 도는 경로를 골랐다. 세 번 시도.</div>
+    <div class="cards">
+      <div class="card"><div class="n red">금지</div><div class="t">뒤로 가는 첫 구간을 막음 → 막다른 골목에서 못 빠져나옴</div></div>
+      <div class="card"><div class="n yellow">약한 벌점</div><div class="t">값 30, 60 → 되돌아가기를 못 막음. <b>중간값이 제일 나빴다</b></div></div>
+      <div class="card hot"><div class="n green">강한 벌점</div><div class="t">값 120 → 둘 다 해결. 되돌아가기 30회 → 0회</div></div>
+    </div>
+    <div class="concl">제약의 세기는 <span class="green">단조롭지 않다.</span> 완전히 막으면 탈출을 잃고, 약하게 걸면 소용이 없다. 정답은 양 끝 중 하나였다.</div>
+  </section>
+
+  <!-- 6 3단계 하이브리드 -->
+  <section class="slide">
+    <div class="tag">// 03 &nbsp;<b>3단계 — 상수로 안 되면, 방법을 바꾼다</b></div>
+    <h2>차가 <span class="green">실제로 그릴 수 있는</span> 곡선만 잇는다</h2>
+    <div class="split">
+      <figure>
+        <svg viewBox="0 0 460 250" role="img" aria-label="각진 경로와 하이브리드 곡선 비교">
+          <!-- 좌: 접선-원호 (각짐) -->
+          <circle cx="95" cy="150" r="34" fill="#ff9a3c" opacity="0.16" stroke="#ff9a3c" stroke-width="1.5"/>
+          <path d="M30 210 L70 128 A34 34 0 0 1 128 140 L185 70" fill="none" stroke="#f2cc60" stroke-width="3"/>
+          <text x="58" y="120" fill="#ff6b6b" font-size="20" font-weight="800">x</text>
+          <text x="128" y="128" fill="#ff6b6b" font-size="20" font-weight="800">x</text>
+          <text x="20" y="235" fill="#8a93a6" font-size="13" font-family="'Malgun Gothic'">접선 그래프 · 핸들 순간이동</text>
+          <!-- 구분선 -->
+          <line x1="230" y1="30" x2="230" y2="225" stroke="#222c40" stroke-width="1.5"/>
+          <!-- 우: 하이브리드 (부드러움) -->
+          <circle cx="325" cy="150" r="34" fill="#ff9a3c" opacity="0.16" stroke="#ff9a3c" stroke-width="1.5"/>
+          <path d="M265 210 C300 175 300 120 345 110 C385 101 400 80 420 68" fill="none" stroke="#7ee787" stroke-width="3"/>
+          <text x="398" y="60" fill="#7ee787" font-size="18" font-weight="800">O</text>
+          <text x="258" y="235" fill="#8a93a6" font-size="13" font-family="'Malgun Gothic'">하이브리드 A* · 실제로 주행 가능</text>
+        </svg>
+        <div class="figcap">같은 장애물, 왼쪽은 못 따라가고 오른쪽은 따라간다</div>
+      </figure>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="lead" style="font-size:clamp(14px,1.7vw,21px)">접선 그래프에선 호가 곧 안전 경계라, <b>안전 여유와 회전 반경을 분리할 수 없다.</b> 상수를 바꿔 풀 문제가 아니라 <span class="cyan">표현 방식 자체의 한계</span>였다.</div>
+        <ul class="plain">
+          <li>격자로 범위를 줄이되, 칸마다 차의 <b>위치와 방향</b>을 기억</li>
+          <li>직진·좌우로 조금씩 꺾는 <b>곡선 조각</b>만 이어붙임</li>
+          <li>차체를 점이 아니라 <b>원 3개</b>로 덮어 충돌 판정</li>
+        </ul>
+        <div class="win"><span class="small">통과 가능한 틈</span>&nbsp;<span class="red">1.69 m</span><span class="arrow">→</span><span class="green">0.7 m</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 실물 복병 -->
+  <section class="slide">
+    <div class="tag">// 04 &nbsp;<b>실물의 복병 — 시뮬레이터가 안 가르쳐준 것</b></div>
+    <h2>알고리즘이 아니라 <span class="red">부호와 단위</span>였다</h2>
+    <ul class="plain bug">
+      <li>자이로 눈금을 안 맞춰 도는 양이 <span class="red">8배</span>로 찍힘 → 지도가 빙글빙글 돌며 모든 길이 막힘</li>
+      <li>조향 방향이 반대라 바로잡을수록 <span class="red">나선</span>으로 감겨 들어감</li>
+      <li>센서 서보 방향이 반대라 지도가 <span class="red">거울</span>처럼 좌우 반전</li>
+      <li>시뮬레이터 속도를 그대로 써서, <span class="red">3cm</span> 가고 96cm 갔다고 믿음</li>
+      <li>자이로 판이 고장 → Arduino가 <span class="mono cyan">ω = v·tan(δ) / L</span> 로 대신 계산</li>
+    </ul>
+    <div class="concl">시뮬레이터가 "당연히 맞다"고 가정한 것들이 하나씩 깨졌다. 아무리 좋은 알고리즘도 부호 하나 틀리면 차는 엉뚱하게 간다. <span class="cyan">기록의 숫자</span>가 원인을 찾아줬다.</div>
+  </section>
+
+  <!-- 8 마무리 -->
+  <section class="slide">
+    <div class="tag">// 05 &nbsp;<b>정리</b></div>
+    <h1>성능은 새 기법이 아니라,<br><span class="yellow">틀린 가정을 하나씩 찾아</span> 좋아졌다</h1>
+    <div class="split" style="align-items:stretch">
+      <div class="card"><div class="n blue">1</div><div class="t"><b>판별식 모델</b><br>학교 수학으로 시작<br><span class="small">겹친 원에서 막힘</span></div></div>
+      <div class="card"><div class="n cyan">2</div><div class="t"><b>접선 그래프 A*</b><br>노선도 + 지연 검사<br><span class="small">회전 반경 못 다룸</span></div></div>
+      <div class="card hot"><div class="n green">3</div><div class="t"><b>하이브리드 A*</b><br>그릴 수 있는 곡선만<br><span class="small">무작위 40/40 도착</span></div></div>
+    </div>
+    <div class="byline" style="margin-top:6px">감사합니다 — 팀 Tesla</div>
+  </section>
+
+</div>
+
+<div class="hint">← → 방향키로 넘기기</div>
+<div class="nav left" id="navLeft"></div>
+<div class="nav right" id="navRight"></div>
+<div class="hud">
+  <span class="counter"><b id="cur">1</b> / <span id="total">8</span></span>
+  <span class="dots" id="dots"></span>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const dotsBox = document.getElementById('dots');
+  const curLabel = document.getElementById('cur');
+  let currentSlide = 0;
+
+  slides.forEach((_, index) => {
+    const dot = document.createElement('b');
+    dot.addEventListener('click', () => showSlide(index));
+    dotsBox.appendChild(dot);
+  });
+  const dots = Array.from(dotsBox.children);
+  document.getElementById('total').textContent = slides.length;
+
+  function showSlide(index){
+    currentSlide = Math.max(0, Math.min(slides.length - 1, index));
+    slides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlide));
+    dots.forEach((dot, i) => dot.classList.toggle('on', i === currentSlide));
+    curLabel.textContent = currentSlide + 1;
+  }
+  function goNext(){ showSlide(currentSlide + 1); }
+  function goPrev(){ showSlide(currentSlide - 1); }
+
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { goNext(); e.preventDefault(); }
+    else if(e.key === 'ArrowLeft' || e.key === 'PageUp') { goPrev(); e.preventDefault(); }
+    else if(e.key === 'Home') showSlide(0);
+    else if(e.key === 'End') showSlide(slides.length - 1);
+  });
+  document.getElementById('navRight').addEventListener('click', goNext);
+  document.getElementById('navLeft').addEventListener('click', goPrev);
+
+  const terms = ['A*','판별식','접선','원호','heading','하이브리드','거리장','격자','atan2','pure pursuit','비홀로노믹','수선의 발','점유 격자','휴리스틱','접점','곡률'];
+  const bg = document.getElementById('bgcode');
+  for(let placed = 0; placed < 24; placed++){
+    const span = document.createElement('span');
+    span.textContent = terms[placed % terms.length];
+    span.style.left = Math.random() * 90 + 'vw';
+    span.style.top = Math.random() * 92 + 'vh';
+    span.style.fontSize = (Math.random() * 16 + 12) + 'px';
+    span.style.transform = 'rotate(' + (Math.random() * 28 - 14) + 'deg)';
+    bg.appendChild(span);
+  }
+
+  showSlide(0);
+</script>
+</body>
+</html>
