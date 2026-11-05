@@ -9,5 +9,10 @@ __pycache__/
 Thumbs.db
 desktop.ini
 
+# 이름과 학번이 들어가는 파일. 공개 저장소라 올리지 않음
+report_pdf/members.local.txt
+report_pdf/report.html
+report_pdf/*.pdf
+
 # 가짜 아두이노로 돌린 주행 기록 (실차 기록은 실험 자료라 남김)
 logs/*_fake.csv

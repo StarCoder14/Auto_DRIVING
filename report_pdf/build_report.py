@@ -23,7 +23,12 @@ EDGE = Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
 
 TEAM_NAME = "Tesla"
 # 표지에 학번 이름 순서로 한 줄씩 들어감
-MEMBERS = ["팀원 1", "팀원 2", "팀원 3"]
+# 이름은 공개 저장소에 올라가면 안 돼서 git 이 무시하는 members.local.txt 에서 읽음. 파일이 없으면 자리만 채움
+MEMBERS_FILE = HERE / "members.local.txt"
+if MEMBERS_FILE.exists():
+    MEMBERS = [line.strip() for line in MEMBERS_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]
+else:
+    MEMBERS = ["팀원 1", "팀원 2", "팀원 3"]
 DATE_TEXT = "2026년 11월"
 
 ROMAN = {"I": "Ⅰ", "II": "Ⅱ", "III": "Ⅲ", "IV": "Ⅳ"}
